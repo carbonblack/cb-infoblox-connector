@@ -155,9 +155,10 @@ class LiveResponseThread(threading.Thread):
         session_id = resp.get('id')
 
         session_state = 'pending'
-        while session_state != 'complete':
+        while session_state != 'active':
             time.sleep(5)
             session_state = self.cb.live_response_session_status(session_id).get('status')
+            print 'LR status=%s' % session_state
 
         print 'I have a live response session: session_id=%d status=%s' % (session_id, session_state)
 
@@ -315,7 +316,7 @@ class InfobloxIntegration(CbIntegrationDaemon):
         kill_process_thread.start()
 
         message_broker.add_response_action(flusher.action)
-        message_broker.add_response_action(isolator.action)
+#        message_broker.add_response_action(isolator.action)
         message_broker.add_response_action(kill_process_thread.action)
         syslog_server.start()
         message_broker.start()
