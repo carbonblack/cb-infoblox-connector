@@ -129,14 +129,19 @@ class LiveResponseThread(threading.Thread):
             process_ids = copy.copy(self.remaining_process_ids)
         return process_ids
 
+    def killed_procs(self):
+        with self.process_list_lock:
+            killed_process_ids = copy.copy(self.killed_process_ids)
+        return killed_process_ids
+
     def timed_out(self):
         return not self.is_alive() and not self.done
 
     def add_processes(self, process_ids):
-        if not self.is_alive():
-            return False
-
         with self.process_list_lock:
+            if not self.is_alive():
+                return False
+
             self.newest_time_stamp = time.time()
 
             for process_id in process_ids:
@@ -145,7 +150,7 @@ class LiveResponseThread(threading.Thread):
                     self.remaining_process_ids.append(process_id)
                     self.done = False
 
-        return True
+            return True
 
     def stop(self):
         self.done = True
@@ -211,7 +216,7 @@ class LiveResponseThread(threading.Thread):
                     print "KILLED %d" % live_proc_pid
                     killed.append(live_proc_guid)
 
-        return killed
+        return (len(live_procs) > 0), killed
 
     def run(self):
         self._establish_live_response_session()
@@ -222,16 +227,24 @@ class LiveResponseThread(threading.Thread):
 
             if len(remaining_process_ids):
                 print 'processes queued for termination: [%s]' % ', '.join(remaining_process_ids)
-                killed = self._kill_processes(remaining_process_ids)
+                success, killed = self._kill_processes(remaining_process_ids)
 
                 with self.process_list_lock:
-                    new_process_ids = list(set(remaining_process_ids) - set(killed))
+                    if success:
+                        new_process_ids = []
+                    # Assume that if we successfully enumerated processes in _kill_processes, that we were able
+                    # to kill any processes of interest that were running. The rest of the processes are already
+                    # dead (since we get a lot of historical data from Cb)
+                    #   new_process_ids = list(set(remaining_process_ids) - set(killed))
                     self.remaining_process_ids = new_process_ids
-                    if not len(self.remaining_process_ids):
-                        self.done = True
+
+                    for proc in killed:
+                        self.killed_process_ids.add(proc)
             else:
                 print 'no processes queued for termination, sleeping'
             time.sleep(5)
+
+        print 'exiting LiveResponseThread'
 
 
 """The ApiKillProcessAction action will wait for the offending process to show up in a process search
@@ -274,7 +287,13 @@ class ApiKillProcessAction(threading.Thread):
     def _add_processes_to_bolo(self, sensor_id, target_proc_guids):
         with self.bolo_lock:
             t = self.bolo[sensor_id]['killing_thread']
-            t.add_processes(target_proc_guids)
+            if not t.add_processes(target_proc_guids):
+                # old thread died, start another
+                t.join()
+                t = LiveResponseThread(self.cb, sensor_id, [])
+                t.start()
+                self.bolo[sensor_id]['killing_thread'] = t
+                t.add_processes(target_proc_guids)
 
     def run(self):
         while not self.stopped:
@@ -291,6 +310,12 @@ class ApiKillProcessAction(threading.Thread):
                 self._add_processes_to_bolo(search_entry['sensor_id'], target_proc_guids)
 
             time.sleep(15)
+
+        for bolo in self.bolo:
+            if bolo['killing_thread']:
+                bolo['killing_thread'].join()
+
+
 
 
 class InfobloxIntegration(CbIntegrationDaemon):
