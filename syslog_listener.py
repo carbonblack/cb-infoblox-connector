@@ -5,13 +5,55 @@ import socket
 import re
 import threading
 import time
-import cbapi
 import Queue
 import pprint
 import copy
 import sys
 
+import requests
+requests.packages.urllib3.disable_warnings()
+
+import cbapi
 from cbint import CbIntegrationDaemon
+
+import logging
+from logging.handlers import RotatingFileHandler
+
+def create_stdout_log(name, level):
+    """
+    Creates a rotating log
+    """
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+
+    # add a rotating handler
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter.converter = time.gmtime
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+    return logger
+
+
+
+# def create_rotating_log(name, path, level, num_bytes, backup_count):
+#     """
+#     Creates a rotating log
+#     """
+#     logger = logging.getLogger(name)
+#     logger.setLevel(level)
+#
+#     # add a rotating handler
+#     handler = RotatingFileHandler(path, maxBytes=num_bytes, backupCount=backup_count) #1 MB
+#     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+#     formatter.converter = time.gmtime
+#     handler.setFormatter(formatter)
+#     logger.addHandler(handler)
+#
+#     return logger
+
+_logger = create_stdout_log("cb-taxii", logging.DEBUG)
 
 worker_queue = Queue.Queue(maxsize=10)
 
@@ -39,14 +81,14 @@ class FanOutMessage(threading.Thread):
     def run(self):
         while True:
             sensor_ip, domain = worker_queue.get()
-            print 'got %s:%s from queue' % (sensor_ip, domain)
+            _logger.warn('got %s:%s from queue' % (sensor_ip, domain))
             if sensor_ip not in self.sensor_cache:
                 sensors = self.cb.sensors(query_parameters={'ip': sensor_ip})
                 # ensure that each sensor at least has an ID
                 self.sensor_cache[sensor_ip] = [sensor for sensor in sensors if sensor.get('id')]
 
             for action in self.actions:
-                print 'Dispatching action %s based on %s:%s' % (action, sensor_ip, domain)
+                _logger.warn('Dispatching action %s based on %s:%s' % (action, sensor_ip, domain))
                 action(self.sensor_cache[sensor_ip], domain)
 
             worker_queue.task_done()
@@ -68,10 +110,10 @@ class SyslogServer(threading.Thread):
         while True:
             data, addr = syslog_socket.recvfrom(2048)
             data = data.strip()
-            print 'got data: %s' % data
+            _logger.debug('got data: %s' % data) # TODO -- cleanup
             hit = self.format_string.search(data)
             if hit:
-                print 'adding to queue: %s : %s' % (hit.group(1), hit.group(2))
+                _logger.info('adding to queue: %s : %s' % (hit.group(1), hit.group(2)))
                 worker_queue.put((hit.group(1), hit.group(2)))
 
 
@@ -163,9 +205,9 @@ class LiveResponseThread(threading.Thread):
         while session_state != 'active':
             time.sleep(5)
             session_state = self.cb.live_response_session_status(session_id).get('status')
-            print 'LR status=%s' % session_state
+            _logger.debug('LR status=%s' % session_state)
 
-        print 'I have a live response session: session_id=%d status=%s' % (session_id, session_state)
+        _logger.debug('I have a live response session: session_id=%d status=%s' % (session_id, session_state))
 
         self.live_response_session = session_id
 
@@ -178,7 +220,7 @@ class LiveResponseThread(threading.Thread):
 
         while not killed and count < 5:
             resp = self.cb.live_response_session_command_get(session_id, command_id)
-            print "Killing %d" % (pid)
+            _logger.warn("Killing %d" % (pid))
             pprint.pprint(resp)
             if resp.get('status') == 'complete':
                 killed = True
@@ -210,10 +252,10 @@ class LiveResponseThread(threading.Thread):
 
             if live_proc_guid in target_proc_guids:
                 live_proc_pid = live_proc.get('pid')
-                print "Killing! ----------------------------"
+                _logger.warn("Killing! ----------------------------")
                 pprint.pprint(live_proc)
                 if self._kill_process(live_proc_pid):
-                    print "KILLED %d" % live_proc_pid
+                    _logger.warn("KILLED %d" % live_proc_pid)
                     killed.append(live_proc_guid)
 
         return (len(live_procs) > 0), killed
@@ -226,7 +268,7 @@ class LiveResponseThread(threading.Thread):
                 remaining_process_ids = copy.copy(self.remaining_process_ids)
 
             if len(remaining_process_ids):
-                print 'processes queued for termination: [%s]' % ', '.join(remaining_process_ids)
+                _logger.warn('processes queued for termination: [%s]' % ', '.join(remaining_process_ids))
                 success, killed = self._kill_processes(remaining_process_ids)
 
                 with self.process_list_lock:
@@ -241,10 +283,10 @@ class LiveResponseThread(threading.Thread):
                     for proc in killed:
                         self.killed_process_ids.add(proc)
             else:
-                print 'no processes queued for termination, sleeping'
+                _logger.warn('no processes queued for termination, sleeping')
             time.sleep(5)
 
-        print 'exiting LiveResponseThread'
+        _logger.warn('exiting LiveResponseThread')
 
 
 """The ApiKillProcessAction action will wait for the offending process to show up in a process search
@@ -302,7 +344,7 @@ class ApiKillProcessAction(threading.Thread):
                 bolo_searches = copy.copy(self.bolo_searches)
 
             for search_entry in bolo_searches:
-                print search_entry
+                _logger.info(search_entry)
                 query = 'sensor_id:{0:d} domain:{1:s}'.format(search_entry['sensor_id'],
                                                               search_entry['domain'])
                 procs = self.cb.process_search_iter(query)
