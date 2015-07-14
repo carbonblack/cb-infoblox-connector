@@ -25,41 +25,13 @@ import cbapi
 from cbint import CbIntegrationDaemon
 
 import logging
-from logging.handlers import RotatingFileHandler
+from util import create_stdout_log
 
-def create_stdout_log(name, level):
-    """
-    Creates a rotating log
-    """
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-
-    # add a rotating handler
-    handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    formatter.converter = time.gmtime
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-
-    return logger
-
-
-
-# def create_rotating_log(name, path, level, num_bytes, backup_count):
-#     """
-#     Creates a rotating log
-#     """
-#     logger = logging.getLogger(name)
-#     logger.setLevel(level)
 #
-#     # add a rotating handler
-#     handler = RotatingFileHandler(path, maxBytes=num_bytes, backupCount=backup_count) #1 MB
-#     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-#     formatter.converter = time.gmtime
-#     handler.setFormatter(formatter)
-#     logger.addHandler(handler)
+# TODO -- handle ctrl-c
+# TODO -- read settings from config file
+# TODO -- better logging
 #
-#     return logger
 
 _logger = create_stdout_log("cb-taxii", logging.DEBUG)
 
@@ -454,6 +426,7 @@ class InfobloxIntegration(CbIntegrationDaemon):
         self.cb = cbapi.CbApi(cb_url, token=cb_token, ssl_verify=False)
 
     def run(self):
+        _logger.warn("CB Infoblox Connector Starting")
         syslog_server = SyslogServer(10240)
         message_broker = FanOutMessage(self.cb)
 
@@ -473,11 +446,17 @@ class InfobloxIntegration(CbIntegrationDaemon):
         message_broker.add_response_action(kill_streaming_action.action)
         syslog_server.start()
         message_broker.start()
+        _logger.warn("CB Infoblox Connector Stopping")
+
 
 
 if __name__ == '__main__':
     # debugging, call .run() directly (rather than .start())
-    i = InfobloxIntegration('infoblox', debug=True, cb_url=sys.argv[1], cb_token=sys.argv[2], streaming_host=sys.argv[3],
+    i = InfobloxIntegration('infoblox',
+                            debug=True,
+                            cb_url=sys.argv[1],
+                            cb_token=sys.argv[2],
+                            streaming_host=sys.argv[3],
                             streaming_password=sys.argv[4])
     i.run()
 
