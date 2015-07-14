@@ -10,6 +10,14 @@ import Queue
 import pprint
 import copy
 import sys
+import struct
+import uuid
+from collections import defaultdict
+
+from cbapi.util.messaging_helpers import QueuedCbSubscriber
+import cbapi.util.sensor_events_pb2 as cpb
+
+from google.protobuf.message import DecodeError
 
 from cbint import CbIntegrationDaemon
 
@@ -94,21 +102,86 @@ class IsolateAction(object):
                 isolate_sensor(self.cb, sensor['id'])
 
 
-"""The StreamingKillProcessAction will use the streaming interface to kill a process that contacts
-a domain flagged by Infoblox immediately"""
-class StreamingKillProcessAction(threading.Thread):
+"""The FeedAction will start a web server and create a feed consumable by Carbon Black that
+lists all processes flagged by infoblox"""
+class FeedAction(threading.Thread):
     def __init__(self, cb):
         self.cb = cb
-        # Define the "Be On The Lookout For" (bolo) list that we'll use when processing the stream...
-        self.bolo = []
         threading.Thread.__init__(self)
+
+    def action(self, sensors, domain):
+        # add the domain to the list of domains in the feed
+        # write out the feed to a temporary file, so we can checkpoint it if/when we die
+        pass
+
+
+"""The StreamingKillProcessAction will use the streaming interface to kill a process that contacts
+a domain flagged by Infoblox immediately"""
+class StreamingKillProcessAction(QueuedCbSubscriber):
+    def __init__(self, cb, streaming_host, streaming_user, streaming_password):
+        self.cb = cb
+        # Define the "Be On The Lookout For" (bolo) list that we'll use when processing the stream...
+        self.bolo = defaultdict(dict)
+        self.bolo_lock = threading.Lock()
+        super(StreamingKillProcessAction, self).__init__(streaming_host, streaming_user, streaming_password,
+                                                         "ingress.event.netconn")
+
+    def _make_guid(self, sensor_id, hdr):
+        if hdr.HasField('process_pid') and hdr.HasField('process_create_time'):
+            # new style guid
+            pid = int(hdr.process_pid)
+            high  = (sensor_id & 0xffffffff) << 32
+            high |= (pid & 0xffffffff)
+            low = int(hdr.process_create_time)
+            b = struct.pack(">QQ", high, low)
+            return str(uuid.UUID(bytes=b))
+        else:
+            # old style guid
+            return hdr.process_guid
+
+    def action(self, sensors, domain):
+        # only take action on sensors that support CbLR
+        for sensor in [sensor for sensor in sensors if sensor.get('supports_cblr', False) is True]:
+            sensor_id = sensor.get('id')
+
+            with self.bolo_lock:
+                key = '%d:%s' % (sensor_id, domain)
+                self.bolo[key]['timestamp'] = time.time()
+
+    def consume_message(self, channel, method_frame, header_frame, body):
+        if "application/protobuf" != header_frame.content_type:
+            return
+
+        try:
+            msg = cpb.CbEventMsg()
+            msg.ParseFromString(body)
+
+            if not msg.HasField('env') or not msg.HasField('network'):
+                return
+
+            if not msg.network.HasField('utf8_netpath') or not len(msg.network.utf8_netpath):
+                return
+
+            sensor_id = msg.env.endpoint.SensorId
+            key = '%d:%s' % (sensor_id, msg.network.utf8_netpath)
+            process_guid = self._make_guid(sensor_id, msg.header)
+
+            with self.bolo_lock:
+                if key in self.bolo.keys():
+                    if 'killing_thread' not in self.bolo[key] or not self.bolo[key]['killing_thread'].add_processes([process_guid]):
+                        new_thread = LiveResponseThread(self.cb, sensor_id, [process_guid], one_time=True)
+                        self.bolo[key]['killing_thread'] = new_thread
+                        new_thread.start()
+
+        except DecodeError:
+            print "Could not decode message from Cb"
 
 
 """A LiveResponseThread is created for every sensor that has processes to kill"""
 class LiveResponseThread(threading.Thread):
     """ note that timeout is not currently implemented
     """
-    def __init__(self, cb, sensor_id, process_ids, timeout=None):
+    def __init__(self, cb, sensor_id, process_ids, one_time=False, timeout=None):
         self.cb = cb
         self.sensor_id = sensor_id
         self.process_list_lock = threading.Lock()
@@ -121,6 +194,7 @@ class LiveResponseThread(threading.Thread):
         self.live_response_session = None
         self.newest_time_stamp = time.time()
         self.timeout = timeout
+        self.one_time = one_time
 
         threading.Thread.__init__(self)
 
@@ -232,6 +306,8 @@ class LiveResponseThread(threading.Thread):
                 with self.process_list_lock:
                     if success:
                         new_process_ids = []
+                    else:
+                        new_process_ids = self.remaining_process_ids
                     # Assume that if we successfully enumerated processes in _kill_processes, that we were able
                     # to kill any processes of interest that were running. The rest of the processes are already
                     # dead (since we get a lot of historical data from Cb)
@@ -240,6 +316,9 @@ class LiveResponseThread(threading.Thread):
 
                     for proc in killed:
                         self.killed_process_ids.add(proc)
+
+                    if not len(new_process_ids) and self.one_time:
+                        self.done = True
             else:
                 print 'no processes queued for termination, sleeping'
             time.sleep(5)
@@ -322,6 +401,8 @@ class InfobloxIntegration(CbIntegrationDaemon):
     def __init__(self, *args, **kwargs):
         cb_url = kwargs.pop('cb_url', None)
         cb_token = kwargs.pop('cb_token', None)
+        self.streaming_host = kwargs.pop('streaming_host')
+        self.streaming_password = kwargs.pop('streaming_password')
 
         if not cb_url or not cb_token:
             raise Exception("Need Cb URL & token")
@@ -340,14 +421,21 @@ class InfobloxIntegration(CbIntegrationDaemon):
         kill_process_thread = ApiKillProcessAction(self.cb)
         kill_process_thread.start()
 
+        kill_streaming_action = StreamingKillProcessAction(self.cb, self.streaming_host, 'cb', self.streaming_password)
+        t1 = threading.Thread(target=kill_streaming_action.process)
+        t1.start()
+
         message_broker.add_response_action(flusher.action)
 #        message_broker.add_response_action(isolator.action)
-        message_broker.add_response_action(kill_process_thread.action)
+#        message_broker.add_response_action(kill_process_thread.action)
+        message_broker.add_response_action(kill_streaming_action.action)
         syslog_server.start()
         message_broker.start()
 
+
 if __name__ == '__main__':
     # debugging, call .run() directly (rather than .start())
-    i = InfobloxIntegration('infoblox', debug=True, cb_url=sys.argv[1], cb_token=sys.argv[2])
+    i = InfobloxIntegration('infoblox', debug=True, cb_url=sys.argv[1], cb_token=sys.argv[2], streaming_host=sys.argv[3],
+                            streaming_password=sys.argv[4])
     i.run()
 
