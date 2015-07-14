@@ -410,7 +410,7 @@ class ApiKillProcessAction(threading.Thread):
 
 
 
-
+# TODO -- read from a config file or have a helper class read from a config file
 class InfobloxIntegration(CbIntegrationDaemon):
     def __init__(self, *args, **kwargs):
         cb_url = kwargs.pop('cb_url', None)
