@@ -1,0 +1,15 @@
+
+[bridge]
+do_kill=true
+do_isolation=true
+do_alert=true
+
+[infoblox]
+server_address=192.168.230.200
+
+[carbonblack]
+server_url=https://192.168.230.206
+auth_token=
+streaming_host=
+streaming_ip_match=169.250.0.10
+feed_alerting=email,syslog
