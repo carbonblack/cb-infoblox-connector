@@ -14,6 +14,7 @@ import uuid
 import os
 import sys
 from collections import defaultdict
+import json
 
 from cbapi.util.messaging_helpers import QueuedCbSubscriber
 import cbapi.util.sensor_events_pb2 as cpb
@@ -161,7 +162,7 @@ class FeedAction(threading.Thread, Action):
 #        if int(self.bridge_options.get('restore_feed_on_restart', 0)):
         self.logger.info("Restoring saved feed...")
         num_restored = self.restore_feed_files()
-        self.logger.info("Restored %d alerts from %d on-disk files" % (len(self.feed['reports']), num_restored))
+        self.logger.info("Restored %d alerts" % num_restored)
 
         self.logger.debug("starting flask")
         self.serve()
@@ -215,29 +216,9 @@ class FeedAction(threading.Thread, Action):
         return self.flask_feed.generate_image_response(image_path="%s%s" % (self.directory, self.integration_image_path))
 
     def restore_feed_files(self):
-        """
-        restore alerts from disk
-        """
-        num_restored = 0
-
-        alert_filenames = os.listdir(self.data_dir)
-        for alert_filename in alert_filenames:
-            try:
-                # read the alert file from disk and decode it's contents as JSON
-                #
-                report = cbint.utils.json.json_decode(open('%s/%s' % (self.data_dir, alert_filename)).read())
-
-                # add the new report to the feed
-                #
-                self.feed["reports"].append(report)
-
-            except Exception as e:
-                self.logger.warn("Failure processing saved alert '%s' [%s]" % (alert_filename, e))
-                continue
-
-            num_restored += 1
-
-        return num_restored
+        new_domains = json.load(open('%s/%s' % (self.data_dir, 'infoblox_domains.json')))
+        self.feed_domains.update(new_domains)
+        return len(new_domains)
 
     def action(self, sensors, domain):
         """
@@ -250,6 +231,10 @@ class FeedAction(threading.Thread, Action):
                 self.sync_needed = True
             self.feed_domains[domain]['timestamp'] = time.time()
 
+        if self.sync_needed:
+            self.cb.feed_synchronize(self.feed_name)
+            json.dump(open('%s/%s' % (self.data_dir, 'infoblox_domains.json')), self.feed_domains)
+
 
 """The StreamingKillProcessAction will use the streaming interface to kill a process that contacts
 a domain flagged by Infoblox immediately"""
@@ -259,8 +244,8 @@ class StreamingKillProcessAction(QueuedCbSubscriber, Action):
         # Define the "Be On The Lookout For" (bolo) list that we'll use when processing the stream...
         self.bolo = defaultdict(dict)
         self.bolo_lock = threading.Lock()
-        super(StreamingKillProcessAction, self).__init__(streaming_host, streaming_user, streaming_password,
-                                                         "ingress.event.netconn")
+        QueuedCbSubscriber.__init__(self, streaming_host, streaming_user, streaming_password,
+                                    "ingress.event.netconn")
 
     def _make_guid(self, sensor_id, hdr):
         if hdr.HasField('process_pid') and hdr.HasField('process_create_time'):
