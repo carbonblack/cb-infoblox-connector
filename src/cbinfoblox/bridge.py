@@ -8,32 +8,27 @@ import time
 import Queue
 import pprint
 import copy
-import sys
 import struct
+import logging
 import uuid
+import os
+import sys
 from collections import defaultdict
 
 from cbapi.util.messaging_helpers import QueuedCbSubscriber
 import cbapi.util.sensor_events_pb2 as cpb
+from cbint.utils.filesystem import ensure_directory_exists
 
 from google.protobuf.message import DecodeError
 
-import requests
-requests.packages.urllib3.disable_warnings()
-
 import cbapi
+import cbint.utils
+import cbint.utils.feed
 from cbint import CbIntegrationDaemon
+from cbint.utils.flaskfeed import FlaskFeed
 
-import logging
-from util import create_stdout_log
 
-#
-# TODO -- handle ctrl-c
-# TODO -- read settings from config file
-# TODO -- better logging
-#
-
-_logger = create_stdout_log("cb-taxii", logging.DEBUG)
+logging.getLogger("requests").setLevel(logging.WARNING)
 
 worker_queue = Queue.Queue(maxsize=10)
 
@@ -47,8 +42,9 @@ def flush_sensor(cb, sensor_id):
 
 
 class FanOutMessage(threading.Thread):
-    def __init__(self, cb):
+    def __init__(self, cb, logger):
         self.cb = cb
+        self.logger = logger
         self.actions = []
         # TODO: this should be a proper cache with a timeout...
         self.sensor_cache = {}
@@ -61,22 +57,23 @@ class FanOutMessage(threading.Thread):
     def run(self):
         while True:
             sensor_ip, domain = worker_queue.get()
-            _logger.warn('got %s:%s from queue' % (sensor_ip, domain))
+            self.logger.warn('got %s:%s from queue' % (sensor_ip, domain))
             if sensor_ip not in self.sensor_cache:
                 sensors = self.cb.sensors(query_parameters={'ip': sensor_ip})
                 # ensure that each sensor at least has an ID
                 self.sensor_cache[sensor_ip] = [sensor for sensor in sensors if sensor.get('id')]
 
             for action in self.actions:
-                _logger.warn('Dispatching action %s based on %s:%s' % (action, sensor_ip, domain))
+                self.logger.warn('Dispatching action %s based on %s:%s' % (action, sensor_ip, domain))
                 action(self.sensor_cache[sensor_ip], domain)
 
             worker_queue.task_done()
 
 
 class SyslogServer(threading.Thread):
-    def __init__(self, syslog_port):
+    def __init__(self, syslog_port, logger):
         self.syslog_port = syslog_port
+        self.logger = logger
         self.format_string = \
             re.compile('src=(\d+.\d+.\d+.\d+) .*rewrite ([a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,})')
         threading.Thread.__init__(self)
@@ -90,25 +87,29 @@ class SyslogServer(threading.Thread):
         while True:
             data, addr = syslog_socket.recvfrom(2048)
             data = data.strip()
-            _logger.debug('got data: %s' % data) # TODO -- cleanup
+            self.logger.debug('got data: %s' % data) # TODO -- cleanup
             hit = self.format_string.search(data)
             if hit:
-                _logger.info('adding to queue: %s : %s' % (hit.group(1), hit.group(2)))
+                self.logger.info('adding to queue: %s : %s' % (hit.group(1), hit.group(2)))
                 worker_queue.put((hit.group(1), hit.group(2)))
 
-
-class FlushAction(object):
-    def __init__(self, cb):
+class Action(object):
+    def __init__(self, cb, logger):
         self.cb = cb
+        self.logger = logger
+
+class FlushAction(Action):
+    def __init__(self, cb, logger):
+        Action.__init__(self, cb, logger)
 
     def action(self, sensors, domain):
         for sensor in sensors:
             flush_sensor(self.cb, sensor['id'])
 
 
-class IsolateAction(object):
-    def __init__(self, cb):
-        self.cb = cb
+class IsolateAction(Action):
+    def __init__(self, cb, logger):
+        Action.__init__(self, cb, logger)
 
     def action(self, sensors, domain):
         for sensor in sensors:
@@ -116,11 +117,12 @@ class IsolateAction(object):
                 isolate_sensor(self.cb, sensor['id'])
 
 
+# TODO -- do we need this? The daemon is basically setup to be the feed server (as is done in other integrations)
 """The FeedAction will start a web server and create a feed consumable by Carbon Black that
 lists all processes flagged by infoblox"""
-class FeedAction(threading.Thread):
-    def __init__(self, cb):
-        self.cb = cb
+class FeedAction(threading.Thread, Action):
+    def __init__(self, cb, logger):
+        Action.__init__(self, cb, logger) # TODO -- maybe a ThreadedAction class?
         threading.Thread.__init__(self)
 
     def action(self, sensors, domain):
@@ -131,9 +133,9 @@ class FeedAction(threading.Thread):
 
 """The StreamingKillProcessAction will use the streaming interface to kill a process that contacts
 a domain flagged by Infoblox immediately"""
-class StreamingKillProcessAction(QueuedCbSubscriber):
-    def __init__(self, cb, streaming_host, streaming_user, streaming_password):
-        self.cb = cb
+class StreamingKillProcessAction(QueuedCbSubscriber, Action):
+    def __init__(self, cb, logger, streaming_host, streaming_user, streaming_password):
+        Action.__init__(self, cb, logger)
         # Define the "Be On The Lookout For" (bolo) list that we'll use when processing the stream...
         self.bolo = defaultdict(dict)
         self.bolo_lock = threading.Lock()
@@ -183,7 +185,7 @@ class StreamingKillProcessAction(QueuedCbSubscriber):
             with self.bolo_lock:
                 if key in self.bolo.keys():
                     if 'killing_thread' not in self.bolo[key] or not self.bolo[key]['killing_thread'].add_processes([process_guid]):
-                        new_thread = LiveResponseThread(self.cb, sensor_id, [process_guid], one_time=True)
+                        new_thread = LiveResponseThread(self.cb, self.logger, sensor_id, [process_guid], one_time=True)
                         self.bolo[key]['killing_thread'] = new_thread
                         new_thread.start()
 
@@ -191,12 +193,14 @@ class StreamingKillProcessAction(QueuedCbSubscriber):
             print "Could not decode message from Cb"
 
 
+# TODO -- could this grow out of control or anything??
 """A LiveResponseThread is created for every sensor that has processes to kill"""
 class LiveResponseThread(threading.Thread):
     """ note that timeout is not currently implemented
     """
-    def __init__(self, cb, sensor_id, process_ids, one_time=False, timeout=None):
+    def __init__(self, cb, logger, sensor_id, process_ids, one_time=False, timeout=None):
         self.cb = cb
+        self.logger = logger
         self.sensor_id = sensor_id
         self.process_list_lock = threading.Lock()
         self.process_ids = set(process_ids)
@@ -251,9 +255,9 @@ class LiveResponseThread(threading.Thread):
         while session_state != 'active':
             time.sleep(5)
             session_state = self.cb.live_response_session_status(session_id).get('status')
-            _logger.debug('LR status=%s' % session_state)
+            self.logger.debug('LR status=%s' % session_state)
 
-        _logger.debug('I have a live response session: session_id=%d status=%s' % (session_id, session_state))
+        self.logger.debug('I have a live response session: session_id=%d status=%s' % (session_id, session_state))
 
         self.live_response_session = session_id
 
@@ -266,7 +270,7 @@ class LiveResponseThread(threading.Thread):
 
         while not killed and count < 5:
             resp = self.cb.live_response_session_command_get(session_id, command_id)
-            _logger.warn("Killing %d" % (pid))
+            self.logger.warn("Killing %d" % (pid))
             pprint.pprint(resp)
             if resp.get('status') == 'complete':
                 killed = True
@@ -298,10 +302,10 @@ class LiveResponseThread(threading.Thread):
 
             if live_proc_guid in target_proc_guids:
                 live_proc_pid = live_proc.get('pid')
-                _logger.warn("Killing! ----------------------------")
+                self.logger.warn("Killing! ----------------------------")
                 pprint.pprint(live_proc)
                 if self._kill_process(live_proc_pid):
-                    _logger.warn("KILLED %d" % live_proc_pid)
+                    self.logger.warn("KILLED %d" % live_proc_pid)
                     killed.append(live_proc_guid)
 
         return (len(live_procs) > 0), killed
@@ -314,7 +318,7 @@ class LiveResponseThread(threading.Thread):
                 remaining_process_ids = copy.copy(self.remaining_process_ids)
 
             if len(remaining_process_ids):
-                _logger.warn('processes queued for termination: [%s]' % ', '.join(remaining_process_ids))
+                self.logger.warn('processes queued for termination: [%s]' % ', '.join(remaining_process_ids))
                 success, killed = self._kill_processes(remaining_process_ids)
 
                 with self.process_list_lock:
@@ -334,17 +338,17 @@ class LiveResponseThread(threading.Thread):
                     if not len(new_process_ids) and self.one_time:
                         self.done = True
             else:
-                _logger.warn('no processes queued for termination, sleeping')
+                self.logger.warn('no processes queued for termination, sleeping')
             time.sleep(5)
 
-        _logger.warn('exiting LiveResponseThread')
+        self.logger.warn('exiting LiveResponseThread')
 
 
 """The ApiKillProcessAction action will wait for the offending process to show up in a process search
 then kill it using live response."""
-class ApiKillProcessAction(threading.Thread):
-    def __init__(self, cb):
-        self.cb = cb
+class ApiKillProcessAction(threading.Thread, Action):
+    def __init__(self, cb, logger):
+        Action.__init__(self, cb, logger)
         self.stopped = False
         self.bolo = {}
         self.bolo_domains = set()
@@ -362,7 +366,7 @@ class ApiKillProcessAction(threading.Thread):
 
             with self.bolo_lock:
                 if sensor_id not in self.bolo:
-                    new_thread = LiveResponseThread(self.cb, sensor_id, [])
+                    new_thread = LiveResponseThread(self.cb, self.logger, sensor_id, [])
                     new_thread.start()
                     self.bolo[sensor_id] = \
                         {
@@ -383,7 +387,7 @@ class ApiKillProcessAction(threading.Thread):
             if not t.add_processes(target_proc_guids):
                 # old thread died, start another
                 t.join()
-                t = LiveResponseThread(self.cb, sensor_id, [])
+                t = LiveResponseThread(self.cb, self.logger, sensor_id, [])
                 t.start()
                 self.bolo[sensor_id]['killing_thread'] = t
                 t.add_processes(target_proc_guids)
@@ -395,7 +399,7 @@ class ApiKillProcessAction(threading.Thread):
                 bolo_searches = copy.copy(self.bolo_searches)
 
             for search_entry in bolo_searches:
-                _logger.info(search_entry)
+                self.logger.info(search_entry)
                 query = 'sensor_id:{0:d} domain:{1:s}'.format(search_entry['sensor_id'],
                                                               search_entry['domain'])
                 procs = self.cb.process_search_iter(query)
@@ -409,54 +413,194 @@ class ApiKillProcessAction(threading.Thread):
                 bolo['killing_thread'].join()
 
 
+class InfobloxBridge(CbIntegrationDaemon):
+    def __init__(self, name, configfile):
+        CbIntegrationDaemon.__init__(self, name, configfile=configfile)
+        self.cb = None
+        self.bridge_options = {}
+        self.debug = False
+        self.flask_feed = FlaskFeed(__name__)
+        self.sync_needed = False
+        self.feed_name = "infoblox"
+        self.display_name = "Infoblox"
+        self.feed = {}
+        self.directory = os.path.dirname(os.path.realpath(__file__))
+        self.cb_image_path = "/content/carbonblack.png"
+        self.integration_image_path = "/content/infoblox.png"
+        self.json_feed_path = "/infoblox/json"
 
-# TODO -- read from a config file or have a helper class read from a config file
-class InfobloxIntegration(CbIntegrationDaemon):
-    def __init__(self, *args, **kwargs):
-        cb_url = kwargs.pop('cb_url', None)
-        cb_token = kwargs.pop('cb_token', None)
-        self.streaming_host = kwargs.pop('streaming_host')
-        self.streaming_password = kwargs.pop('streaming_password')
+#        super(InfobloxIntegration, self).__init__(*args, **kwargs)
 
-        if not cb_url or not cb_token:
-            raise Exception("Need Cb URL & token")
+        self.flask_feed.app.add_url_rule(self.cb_image_path, view_func=self.handle_cb_image_request)
+        self.flask_feed.app.add_url_rule(self.integration_image_path, view_func=self.handle_integration_image_request)
+        self.flask_feed.app.add_url_rule(self.json_feed_path, view_func=self.handle_json_feed_request, methods=['GET'])
+        self.flask_feed.app.add_url_rule("/", view_func=self.handle_index_request, methods=['GET'])
+        self.flask_feed.app.add_url_rule("/feed.html", view_func=self.handle_html_feed_request, methods=['GET'])
 
-        super(InfobloxIntegration, self).__init__(*args, **kwargs)
+        self.data_dir = "/usr/share/cb/integrations/carbonblack_cyphort_bridge/feed_backup"
 
-        self.cb = cbapi.CbApi(cb_url, token=cb_token, ssl_verify=False)
 
     def run(self):
-        _logger.warn("CB Infoblox Connector Starting")
-        syslog_server = SyslogServer(10240)
-        message_broker = FanOutMessage(self.cb)
+        try:
+            self.logger.warn("CB Infoblox Bridge Starting")
+            sslverify = False if self.bridge_options.get('carbonblack_server_sslverify', "0") == "0" else True
+            self.cb = cbapi.CbApi(self.bridge_options['carbonblack_server_url'],
+                                  token=self.bridge_options['carbonblack_server_token'],
+                                  ssl_verify=sslverify)
 
-        flusher = FlushAction(self.cb)
-        isolator = IsolateAction(self.cb)
+            self.logger.debug("checking CB server version")
+            if not cbint.utils.cbserver.is_server_at_least(self.cb, "4.1"):
+                self.logger.error("the configured Carbon Black Enterprise server does not meet the minimum "
+                                  "required version (4.1)")
+                return
 
-        kill_process_thread = ApiKillProcessAction(self.cb)
-        kill_process_thread.start()
+            self.streaming_host = self.bridge_options.get('carbonblack_streaming_host')
+            self.streaming_username = self.bridge_options.get('carbonblack_streaming_username')
+            self.streaming_password = self.bridge_options.get('carbonblack_streaming_password')
 
-        kill_streaming_action = StreamingKillProcessAction(self.cb, self.streaming_host, 'cb', self.streaming_password)
-        t1 = threading.Thread(target=kill_streaming_action.process)
-        t1.start()
+            syslog_server = SyslogServer(10240, self.logger)
+            message_broker = FanOutMessage(self.cb, self.logger)
 
-        message_broker.add_response_action(flusher.action)
-#        message_broker.add_response_action(isolator.action)
-#        message_broker.add_response_action(kill_process_thread.action)
-        message_broker.add_response_action(kill_streaming_action.action)
-        syslog_server.start()
-        message_broker.start()
-        _logger.warn("CB Infoblox Connector Stopping")
+            flusher = FlushAction(self.cb, self.logger)
+            isolator = IsolateAction(self.cb, self.logger)
+
+            kill_process_thread = ApiKillProcessAction(self.cb, self.logger)
+            kill_process_thread.start()
+            kill_streaming_action = StreamingKillProcessAction(self.cb, self.logger, self.streaming_host, self.streaming_username, self.streaming_password)
+            t1 = threading.Thread(target=kill_streaming_action.process)
+            t1.start()
+
+            message_broker.add_response_action(flusher.action)
+    #        message_broker.add_response_action(isolator.action)
+    #        message_broker.add_response_action(kill_process_thread.action)
+            message_broker.add_response_action(kill_streaming_action.action)
+            syslog_server.start()
+            message_broker.start()
+
+
+            self.logger.debug("generating feed metadata")
+            self.feed = cbint.utils.feed.generate_feed(self.feed_name, summary="Infoblox detonation feed",
+                        tech_data="There are no requirements to share any data with Carbon Black to use this feed. However, binaries may be shared with Infoblox.",
+                        provider_url="http://www.infoblox.com/", icon_path="%s/%s" % (self.directory, self.integration_image_path),
+                        display_name=self.display_name, category="Connectors")
+
+            # make data directories as required
+            #
+            ensure_directory_exists(self.data_dir)
+
+            # restore alerts from disk if so configured
+            #
+    #        if int(self.bridge_options.get('restore_feed_on_restart', 0)):
+            self.logger.info("Restoring saved feed...")
+            num_restored = self.restore_feed_files()
+            self.logger.info("Restored %d alerts from %d on-disk files" % (len(self.feed['reports']), num_restored))
 
 
 
-if __name__ == '__main__':
-    # debugging, call .run() directly (rather than .start())
-    i = InfobloxIntegration('infoblox',
-                            debug=True,
-                            cb_url=sys.argv[1],
-                            cb_token=sys.argv[2],
-                            streaming_host=sys.argv[3],
-                            streaming_password=sys.argv[4])
-    i.run()
+            self.logger.debug("starting flask")
+            self.serve()
 
+            self.logger.warn("CB Infoblox Connector Stopping")
+        except:
+            import traceback
+            self.logger.error(traceback.format_exc())
+
+    def serve(self):
+        address = self.bridge_options.get('listener_address', '0.0.0.0')
+        port = self.bridge_options['listener_port']
+        self.logger.info("starting flask server: %s:%s" % (address, port))
+        self.flask_feed.app.run(port=port, debug=self.debug,
+                                host=address, use_reloader=False)
+
+    def handle_json_feed_request(self):
+        return self.flask_feed.generate_json_feed(self.feed)
+
+    def handle_html_feed_request(self):
+        return self.flask_feed.generate_html_feed(self.feed, self.display_name)
+
+    def handle_index_request(self):
+        return self.flask_feed.generate_html_index(self.feed, self.bridge_options, self.display_name,
+                                                   self.cb_image_path, self.integration_image_path,
+                                                   self.json_feed_path)
+
+    def handle_cb_image_request(self):
+        return self.flask_feed.generate_image_response(image_path="%s%s" % (self.directory, self.cb_image_path))
+
+    def handle_integration_image_request(self):
+        return self.flask_feed.generate_image_response(image_path="%s%s" % (self.directory, self.integration_image_path))
+
+    def restore_feed_files(self):
+        """
+        restore alerts from disk
+        """
+        num_restored = 0
+
+        alert_filenames = os.listdir(self.data_dir)
+        for alert_filename in alert_filenames:
+            try:
+                # read the alert file from disk and decode it's contents as JSON
+                #
+                report = cbint.utils.json.json_decode(open('%s/%s' % (self.data_dir, alert_filename)).read())
+
+                # add the new report to the feed
+                #
+                self.feed["reports"].append(report)
+
+            except Exception as e:
+                self.logger.warn("Failure processing saved alert '%s' [%s]" % (alert_filename, e))
+                continue
+
+            num_restored += 1
+
+        return num_restored
+
+
+    def add_to_feed(self, domain, timestamp, severity):
+        """
+        add a infoblox domain determination to a feed
+        """
+        report = {}
+
+        report['id'] = "Domain-%s" % domain
+        report['link'] = 'http://cyphort.com'
+        report['score'] = severity
+        report['timestamp'] = timestamp
+        report['iocs'] = {'dns': [domain]}
+        report['title'] = "Domain-%s" % domain
+
+        self.feed["reports"].append(report)
+        self.sync_needed = True
+
+    def validate_config(self):
+        # TODO - -clean this up more
+        if 'bridge' in self.options:
+            self.bridge_options = self.options['bridge']
+        else:
+            self.logger.error("configuration does not contain a [bridge] section")
+            return False
+
+        config_valid = True
+        msgs = []
+        # if not 'cyphort_url' in self.bridge_options:
+        #     msgs.append('the config option cyphort_url is required')
+        #     config_valid = False
+        if not 'listener_port' in self.bridge_options or not self.bridge_options['listener_port'].isdigit():
+            msgs.append('the config option listener_port is required and must be a valid port number')
+            config_valid = False
+        # if not 'cyphort_api_key' in self.bridge_options:
+        #     msgs.append('the config option cyphort_api_key is required')
+        #     config_valid = False
+        if not 'carbonblack_server_url' in self.bridge_options:
+            msgs.append('the config option carbonblack_server_url is required')
+            config_valid = False
+        if not 'carbonblack_server_token' in self.bridge_options:
+            msgs.append('the config option carbonblack_server_token is required')
+            config_valid = False
+
+        if not config_valid:
+            for msg in msgs:
+                sys.stderr.write("%s\n" % msg)
+                self.logger.error(msg)
+            return False
+        else:
+            return True

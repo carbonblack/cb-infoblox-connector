@@ -5,11 +5,11 @@ import sys
 import cbinfoblox.version
 import cbinfoblox.bridge
 
-
+sys.path.insert(0, "src/")
 
 if __name__ == "__main__":
     name = "cb-infoblox-bridge"
-    daemon = cbinfoblox.bridge.InfobloxBridge(name, "/etc/cb/integrations/infoblox/infoblox.conf")
+    daemon = cbinfoblox.bridge.InfobloxBridge(name, "root/etc/cb/integrations/infoblox/infoblox.conf")
     if len(sys.argv) == 2:
         if 'start' == sys.argv[1]:
             daemon.start()
