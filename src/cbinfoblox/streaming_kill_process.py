@@ -9,7 +9,7 @@ from collections import defaultdict
 from google.protobuf.message import DecodeError
 from cbapi.util.messaging_helpers import QueuedCbSubscriber
 import cbapi.util.sensor_events_pb2 as cpb
-from cbinfoblox.action import Action
+from action import Action
 from live_response import LiveResponseThread
 
 """The StreamingKillProcessAction will use the streaming interface to kill a process that contacts
@@ -44,6 +44,7 @@ class StreamingKillProcessAction(QueuedCbSubscriber, Action):
             with self.bolo_lock:
                 key = '%d:%s' % (sensor_id, domain)
                 self.bolo[key]['timestamp'] = time.time()
+                self.logger.info("Adding %s to bolo" % key)
 
     def consume_message(self, channel, method_frame, header_frame, body):
         if "application/protobuf" != header_frame.content_type:
@@ -65,6 +66,7 @@ class StreamingKillProcessAction(QueuedCbSubscriber, Action):
 
             with self.bolo_lock:
                 if key in self.bolo.keys():
+                    self.logger.info("Killing process guid %s" % process_guid)
                     if 'killing_thread' not in self.bolo[key] or not self.bolo[key]['killing_thread'].add_processes([process_guid]):
                         new_thread = LiveResponseThread(self.cb, self.logger, sensor_id, [process_guid], one_time=True)
                         self.bolo[key]['killing_thread'] = new_thread

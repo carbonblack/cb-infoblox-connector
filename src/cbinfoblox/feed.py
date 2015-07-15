@@ -26,7 +26,7 @@ class FeedAction(threading.Thread, Action):
             self.sync_needed = False
             self.feed_name = "infoblox"
             self.display_name = "Infoblox"
-            self.feed_metadata = {}
+            self.feed = {}
             self.feed_domains = defaultdict(dict)
             self.feed_lock = threading.Lock()
             self.directory = os.path.dirname(os.path.realpath(__file__))
@@ -38,34 +38,26 @@ class FeedAction(threading.Thread, Action):
             self.flask_feed.app.add_url_rule(self.json_feed_path, view_func=self.handle_json_feed_request, methods=['GET'])
             self.flask_feed.app.add_url_rule("/", view_func=self.handle_index_request, methods=['GET'])
             self.flask_feed.app.add_url_rule("/feed.html", view_func=self.handle_html_feed_request, methods=['GET'])
-
-
         except:
             import traceback
             self.logger.error(traceback.format_exc())
 
-
     def run(self):
         try:
-#            self.feed_id = self.get_or_create_feed()
-
-            self.logger.info("generating feed metadata")
-            icon_path="%s/%s" % (self.directory, self.integration_image_path)
-            self.logger.info("icon_path: %s" % icon_path)
-            self.feed_metadata = cbint.utils.feed.generate_feed(self.feed_name, summary="Infoblox detonation feed",
-                        tech_data="There are no requirements to share any data with Carbon Black to use this feed. However, binaries may be shared with Infoblox.",
-                        provider_url="http://www.infoblox.com/", icon_path=icon_path,
-                        display_name=self.display_name, category="Connectors")
-
             # make data directories as required
             #
             ensure_directory_exists(self.data_dir)
 
             # restore alerts from disk if so configured
             #
-    #        if int(self.bridge_options.get('restore_feed_on_restart', 0)):
-            self.logger.info("Restoring saved feed...")
-            num_restored = self.restore_feed_files()
+            num_restored = 0
+            if int(self.bridge_options.get('restore_feed_on_restart', 1)):
+                self.logger.info("Restoring saved feed...")
+                num_restored = self.restore_feed_files()
+
+            self.feed = self.generate_feed()
+            feed_id = self.get_or_create_feed()
+
             self.logger.info("Restored %d alerts" % num_restored)
 
             self.logger.info("starting flask")
@@ -92,15 +84,24 @@ class FeedAction(threading.Thread, Action):
         self.flask_feed.app.run(port=port, debug=True,
                                 host=address, use_reloader=False)
 
-    @property
-    def feed(self):
-        ret = self.feed_metadata
+    def generate_feed(self):
+        self.logger.info("Generating feed")
+        icon_path="%s/%s" % (self.directory, self.integration_image_path)
+        self.logger.info("icon_path: %s" % icon_path)
+
+        ret = cbint.utils.feed.generate_feed(self.feed_name, summary="Infoblox detonation feed",
+                        tech_data="There are no requirements to share any data with Carbon Black to use this feed. However, binaries may be shared with Infoblox.",
+                        provider_url="http://www.infoblox.com/", icon_path=icon_path,
+                        display_name=self.display_name, category="Connectors")
+
+        ret['reports'] = []
+
         with self.feed_lock:
             for domain in self.feed_domains.keys():
                 report = {'id': "Domain-%s" % domain, 'link': 'http://www.infoblox.com', 'score': 100,
                           'timestamp': self.feed_domains[domain]['timestamp'], 'iocs': {'dns': [domain]},
                           'title': "Domain-%s" % domain}
-
+                self.logger.info("Adding domain %s to feed" % domain)
                 ret["reports"].append(report)
 
         return ret
@@ -129,8 +130,11 @@ class FeedAction(threading.Thread, Action):
         fn = '%s/%s' % (self.data_dir, 'infoblox_domains.json')
         new_domains = {}
         if os.path.isfile(fn):
-            new_domains = json.load(open('%s/%s' % (self.data_dir, 'infoblox_domains.json')))
-            self.feed_domains.update(new_domains)
+            try:
+                new_domains = json.load(open('%s/%s' % (self.data_dir, 'infoblox_domains.json')))
+                self.feed_domains.update(new_domains)
+            except:
+                pass
 
         return len(new_domains)
 
@@ -145,12 +149,13 @@ class FeedAction(threading.Thread, Action):
                 if domain not in self.feed_domains:
                     self.sync_needed = True
                 self.feed_domains[domain]['timestamp'] = time.time()
+                json.dump(self.feed_domains, open('%s/%s' % (self.data_dir, 'infoblox_domains.json'), 'w'))
+
+            self.feed = self.generate_feed()
 
             if self.sync_needed:
                 self.cb.feed_synchronize(self.feed_name)
-                self.sync_needed = False # is this the right place? it seems logical...
-
-#                json.dump(open('%s/%s' % (self.data_dir, 'infoblox_domains.json')), self.feed_domains)
+                self.sync_needed = False
         except:
             import traceback
             self.logger.error(traceback.format_exc())
