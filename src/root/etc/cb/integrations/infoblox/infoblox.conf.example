@@ -3,6 +3,12 @@
 do_kill=true
 do_isolation=true
 do_alert=true
+carbonblack_server_url=https://cb5.wedgie.org
+carbonblack_server_token=XXX
+feed_host=192.168.230.129
+carbonblack_streaming_host=172.22.10.7
+carbonblack_streaming_username=cb
+carbonblack_streaming_password=XXX
 
 [infoblox]
 server_address=192.168.230.200
