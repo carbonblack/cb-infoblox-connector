@@ -117,18 +117,138 @@ class IsolateAction(Action):
                 isolate_sensor(self.cb, sensor['id'])
 
 
-# TODO -- do we need this? The daemon is basically setup to be the feed server (as is done in other integrations)
 """The FeedAction will start a web server and create a feed consumable by Carbon Black that
 lists all processes flagged by infoblox"""
 class FeedAction(threading.Thread, Action):
-    def __init__(self, cb, logger):
+    def __init__(self, cb, logger, bridge_options):
         Action.__init__(self, cb, logger) # TODO -- maybe a ThreadedAction class?
         threading.Thread.__init__(self)
+        self.flask_feed = FlaskFeed(__name__)
+        self.bridge_options = bridge_options
+        self.sync_needed = False
+        self.feed_name = "infoblox"
+        self.display_name = "Infoblox"
+        self.feed_metadata = {}
+        self.feed_domains = defaultdict(dict)
+        self.feed_lock = threading.Lock()
+        self.directory = os.path.dirname(os.path.realpath(__file__))
+        self.cb_image_path = "/content/carbonblack.png"
+        self.integration_image_path = "/content/infoblox.png"
+        self.json_feed_path = "/infoblox/json"
+        self.flask_feed.app.add_url_rule(self.cb_image_path, view_func=self.handle_cb_image_request)
+        self.flask_feed.app.add_url_rule(self.integration_image_path, view_func=self.handle_integration_image_request)
+        self.flask_feed.app.add_url_rule(self.json_feed_path, view_func=self.handle_json_feed_request, methods=['GET'])
+        self.flask_feed.app.add_url_rule("/", view_func=self.handle_index_request, methods=['GET'])
+        self.flask_feed.app.add_url_rule("/feed.html", view_func=self.handle_html_feed_request, methods=['GET'])
+
+        self.data_dir = "/usr/share/cb/integrations/carbonblack_cyphort_bridge/feed_backup"
+
+        self.feed_id = self.get_or_create_feed()
+
+    def run(self):
+        self.logger.debug("generating feed metadata")
+        self.feed_metadata = cbint.utils.feed.generate_feed(self.feed_name, summary="Infoblox detonation feed",
+                    tech_data="There are no requirements to share any data with Carbon Black to use this feed. However, binaries may be shared with Infoblox.",
+                    provider_url="http://www.infoblox.com/", icon_path="%s/%s" % (self.directory, self.integration_image_path),
+                    display_name=self.display_name, category="Connectors")
+
+        # make data directories as required
+        #
+        ensure_directory_exists(self.data_dir)
+
+        # restore alerts from disk if so configured
+        #
+#        if int(self.bridge_options.get('restore_feed_on_restart', 0)):
+        self.logger.info("Restoring saved feed...")
+        num_restored = self.restore_feed_files()
+        self.logger.info("Restored %d alerts from %d on-disk files" % (len(self.feed['reports']), num_restored))
+
+        self.logger.debug("starting flask")
+        self.serve()
+
+    def get_or_create_feed(self):
+        feed_id = self.cb.feed_get_id_by_name(self.feed_name)
+        if not feed_id:
+            self.logger.info("Creating %s feed for the first time" % self.feed_name)
+            self.cb.feed_add_from_url("http://%s:%d%s" % (self.bridge_options['feed_host'],
+                                                          self.bridge_options['listener_port'],
+                                                          self.json_feed_path),
+                                      True, False, False)
+
+        return feed_id
+
+    def serve(self):
+        address = self.bridge_options.get('listener_address', '0.0.0.0')
+        port = self.bridge_options['listener_port']
+        self.logger.info("starting flask server: %s:%s" % (address, port))
+        self.flask_feed.app.run(port=port, debug=self.debug,
+                                host=address, use_reloader=False)
+
+    @property
+    def feed(self):
+        ret = self.feed_metadata
+        with self.feed_lock:
+            for domain in self.feed_domains.keys():
+                report = {'id': "Domain-%s" % domain, 'link': 'http://infoblox.com', 'score': 100,
+                          'timestamp': self.feed_domains[domain]['timestamp'], 'iocs': {'dns': [domain]},
+                          'title': "Domain-%s" % domain}
+
+                ret["reports"].append(report)
+
+        return ret
+
+    def handle_json_feed_request(self):
+        return self.flask_feed.generate_json_feed(self.feed)
+
+    def handle_html_feed_request(self):
+        return self.flask_feed.generate_html_feed(self.feed, self.display_name)
+
+    def handle_index_request(self):
+        return self.flask_feed.generate_html_index(self.feed, self.bridge_options, self.display_name,
+                                                   self.cb_image_path, self.integration_image_path,
+                                                   self.json_feed_path)
+
+    def handle_cb_image_request(self):
+        return self.flask_feed.generate_image_response(image_path="%s%s" % (self.directory, self.cb_image_path))
+
+    def handle_integration_image_request(self):
+        return self.flask_feed.generate_image_response(image_path="%s%s" % (self.directory, self.integration_image_path))
+
+    def restore_feed_files(self):
+        """
+        restore alerts from disk
+        """
+        num_restored = 0
+
+        alert_filenames = os.listdir(self.data_dir)
+        for alert_filename in alert_filenames:
+            try:
+                # read the alert file from disk and decode it's contents as JSON
+                #
+                report = cbint.utils.json.json_decode(open('%s/%s' % (self.data_dir, alert_filename)).read())
+
+                # add the new report to the feed
+                #
+                self.feed["reports"].append(report)
+
+            except Exception as e:
+                self.logger.warn("Failure processing saved alert '%s' [%s]" % (alert_filename, e))
+                continue
+
+            num_restored += 1
+
+        return num_restored
 
     def action(self, sensors, domain):
-        # add the domain to the list of domains in the feed
-        # write out the feed to a temporary file, so we can checkpoint it if/when we die
-        pass
+        """
+        add a infoblox domain determination to a feed
+        """
+        # TODO: we need a timeout feature so domains will age out of the feed over time
+
+        with self.feed_lock:
+            if domain not in self.feed_domains:
+                self.sync_needed = True
+            self.feed_domains[domain]['timestamp'] = time.time()
 
 
 """The StreamingKillProcessAction will use the streaming interface to kill a process that contacts
@@ -419,26 +539,8 @@ class InfobloxBridge(CbIntegrationDaemon):
         self.cb = None
         self.bridge_options = {}
         self.debug = False
-        self.flask_feed = FlaskFeed(__name__)
-        self.sync_needed = False
-        self.feed_name = "infoblox"
-        self.display_name = "Infoblox"
-        self.feed = {}
-        self.directory = os.path.dirname(os.path.realpath(__file__))
-        self.cb_image_path = "/content/carbonblack.png"
-        self.integration_image_path = "/content/infoblox.png"
-        self.json_feed_path = "/infoblox/json"
 
 #        super(InfobloxIntegration, self).__init__(*args, **kwargs)
-
-        self.flask_feed.app.add_url_rule(self.cb_image_path, view_func=self.handle_cb_image_request)
-        self.flask_feed.app.add_url_rule(self.integration_image_path, view_func=self.handle_integration_image_request)
-        self.flask_feed.app.add_url_rule(self.json_feed_path, view_func=self.handle_json_feed_request, methods=['GET'])
-        self.flask_feed.app.add_url_rule("/", view_func=self.handle_index_request, methods=['GET'])
-        self.flask_feed.app.add_url_rule("/feed.html", view_func=self.handle_html_feed_request, methods=['GET'])
-
-        self.data_dir = "/usr/share/cb/integrations/carbonblack_cyphort_bridge/feed_backup"
-
 
     def run(self):
         try:
@@ -463,6 +565,8 @@ class InfobloxBridge(CbIntegrationDaemon):
 
             flusher = FlushAction(self.cb, self.logger)
             isolator = IsolateAction(self.cb, self.logger)
+            feed_thread = FeedAction(self.cb, self.logger, self.bridge_options)
+            feed_thread.start()
 
             kill_process_thread = ApiKillProcessAction(self.cb, self.logger)
             kill_process_thread.start()
@@ -470,6 +574,7 @@ class InfobloxBridge(CbIntegrationDaemon):
             t1 = threading.Thread(target=kill_streaming_action.process)
             t1.start()
 
+            message_broker.add_response_action(feed_thread.action)
             message_broker.add_response_action(flusher.action)
     #        message_broker.add_response_action(isolator.action)
     #        message_broker.add_response_action(kill_process_thread.action)
@@ -477,99 +582,10 @@ class InfobloxBridge(CbIntegrationDaemon):
             syslog_server.start()
             message_broker.start()
 
-
-            self.logger.debug("generating feed metadata")
-            self.feed = cbint.utils.feed.generate_feed(self.feed_name, summary="Infoblox detonation feed",
-                        tech_data="There are no requirements to share any data with Carbon Black to use this feed. However, binaries may be shared with Infoblox.",
-                        provider_url="http://www.infoblox.com/", icon_path="%s/%s" % (self.directory, self.integration_image_path),
-                        display_name=self.display_name, category="Connectors")
-
-            # make data directories as required
-            #
-            ensure_directory_exists(self.data_dir)
-
-            # restore alerts from disk if so configured
-            #
-    #        if int(self.bridge_options.get('restore_feed_on_restart', 0)):
-            self.logger.info("Restoring saved feed...")
-            num_restored = self.restore_feed_files()
-            self.logger.info("Restored %d alerts from %d on-disk files" % (len(self.feed['reports']), num_restored))
-
-
-
-            self.logger.debug("starting flask")
-            self.serve()
-
             self.logger.warn("CB Infoblox Connector Stopping")
         except:
             import traceback
             self.logger.error(traceback.format_exc())
-
-    def serve(self):
-        address = self.bridge_options.get('listener_address', '0.0.0.0')
-        port = self.bridge_options['listener_port']
-        self.logger.info("starting flask server: %s:%s" % (address, port))
-        self.flask_feed.app.run(port=port, debug=self.debug,
-                                host=address, use_reloader=False)
-
-    def handle_json_feed_request(self):
-        return self.flask_feed.generate_json_feed(self.feed)
-
-    def handle_html_feed_request(self):
-        return self.flask_feed.generate_html_feed(self.feed, self.display_name)
-
-    def handle_index_request(self):
-        return self.flask_feed.generate_html_index(self.feed, self.bridge_options, self.display_name,
-                                                   self.cb_image_path, self.integration_image_path,
-                                                   self.json_feed_path)
-
-    def handle_cb_image_request(self):
-        return self.flask_feed.generate_image_response(image_path="%s%s" % (self.directory, self.cb_image_path))
-
-    def handle_integration_image_request(self):
-        return self.flask_feed.generate_image_response(image_path="%s%s" % (self.directory, self.integration_image_path))
-
-    def restore_feed_files(self):
-        """
-        restore alerts from disk
-        """
-        num_restored = 0
-
-        alert_filenames = os.listdir(self.data_dir)
-        for alert_filename in alert_filenames:
-            try:
-                # read the alert file from disk and decode it's contents as JSON
-                #
-                report = cbint.utils.json.json_decode(open('%s/%s' % (self.data_dir, alert_filename)).read())
-
-                # add the new report to the feed
-                #
-                self.feed["reports"].append(report)
-
-            except Exception as e:
-                self.logger.warn("Failure processing saved alert '%s' [%s]" % (alert_filename, e))
-                continue
-
-            num_restored += 1
-
-        return num_restored
-
-
-    def add_to_feed(self, domain, timestamp, severity):
-        """
-        add a infoblox domain determination to a feed
-        """
-        report = {}
-
-        report['id'] = "Domain-%s" % domain
-        report['link'] = 'http://cyphort.com'
-        report['score'] = severity
-        report['timestamp'] = timestamp
-        report['iocs'] = {'dns': [domain]}
-        report['title'] = "Domain-%s" % domain
-
-        self.feed["reports"].append(report)
-        self.sync_needed = True
 
     def validate_config(self):
         # TODO - -clean this up more
