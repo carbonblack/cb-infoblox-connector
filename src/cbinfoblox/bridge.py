@@ -142,12 +142,12 @@ class FeedAction(threading.Thread, Action):
         self.flask_feed.app.add_url_rule("/", view_func=self.handle_index_request, methods=['GET'])
         self.flask_feed.app.add_url_rule("/feed.html", view_func=self.handle_html_feed_request, methods=['GET'])
 
-        self.data_dir = "/usr/share/cb/integrations/carbonblack_cyphort_bridge/feed_backup"
+        self.data_dir = "/usr/share/cb/integrations/cbinfoblox"
 
-        self.feed_id = self.get_or_create_feed()
+#        self.feed_id = self.get_or_create_feed()
 
     def run(self):
-        self.logger.debug("generating feed metadata")
+        self.logger.info("generating feed metadata")
         self.feed_metadata = cbint.utils.feed.generate_feed(self.feed_name, summary="Infoblox detonation feed",
                     tech_data="There are no requirements to share any data with Carbon Black to use this feed. However, binaries may be shared with Infoblox.",
                     provider_url="http://www.infoblox.com/", icon_path="%s/%s" % (self.directory, self.integration_image_path),
@@ -164,7 +164,7 @@ class FeedAction(threading.Thread, Action):
         num_restored = self.restore_feed_files()
         self.logger.info("Restored %d alerts" % num_restored)
 
-        self.logger.debug("starting flask")
+        self.logger.info("starting flask")
         self.serve()
 
     def get_or_create_feed(self):
@@ -172,7 +172,7 @@ class FeedAction(threading.Thread, Action):
         if not feed_id:
             self.logger.info("Creating %s feed for the first time" % self.feed_name)
             self.cb.feed_add_from_url("http://%s:%d%s" % (self.bridge_options['feed_host'],
-                                                          self.bridge_options['listener_port'],
+                                                          int(self.bridge_options['listener_port']),
                                                           self.json_feed_path),
                                       True, False, False)
 
@@ -182,7 +182,7 @@ class FeedAction(threading.Thread, Action):
         address = self.bridge_options.get('listener_address', '0.0.0.0')
         port = self.bridge_options['listener_port']
         self.logger.info("starting flask server: %s:%s" % (address, port))
-        self.flask_feed.app.run(port=port, debug=self.debug,
+        self.flask_feed.app.run(port=port, debug=True,
                                 host=address, use_reloader=False)
 
     @property
@@ -216,8 +216,12 @@ class FeedAction(threading.Thread, Action):
         return self.flask_feed.generate_image_response(image_path="%s%s" % (self.directory, self.integration_image_path))
 
     def restore_feed_files(self):
-        new_domains = json.load(open('%s/%s' % (self.data_dir, 'infoblox_domains.json')))
-        self.feed_domains.update(new_domains)
+        fn = '%s/%s' % (self.data_dir, 'infoblox_domains.json')
+        new_domains = {}
+        if os.path.isfile(fn):
+            new_domains = json.load(open('%s/%s' % (self.data_dir, 'infoblox_domains.json')))
+            self.feed_domains.update(new_domains)
+
         return len(new_domains)
 
     def action(self, sensors, domain):
@@ -232,7 +236,7 @@ class FeedAction(threading.Thread, Action):
             self.feed_domains[domain]['timestamp'] = time.time()
 
         if self.sync_needed:
-            self.cb.feed_synchronize(self.feed_name)
+#            self.cb.feed_synchronize(self.feed_name)
             json.dump(open('%s/%s' % (self.data_dir, 'infoblox_domains.json')), self.feed_domains)
 
 
@@ -553,9 +557,12 @@ class InfobloxBridge(CbIntegrationDaemon):
             feed_thread = FeedAction(self.cb, self.logger, self.bridge_options)
             feed_thread.start()
 
+            self.logger.info("Started feed_thread")
+
             kill_process_thread = ApiKillProcessAction(self.cb, self.logger)
             kill_process_thread.start()
-            kill_streaming_action = StreamingKillProcessAction(self.cb, self.logger, self.streaming_host, self.streaming_username, self.streaming_password)
+            kill_streaming_action = StreamingKillProcessAction(self.cb, self.logger, self.streaming_host,
+                                                               self.streaming_username, self.streaming_password)
             t1 = threading.Thread(target=kill_streaming_action.process)
             t1.start()
 
@@ -566,6 +573,11 @@ class InfobloxBridge(CbIntegrationDaemon):
             message_broker.add_response_action(kill_streaming_action.action)
             syslog_server.start()
             message_broker.start()
+
+            self.logger.info("Starting event loop")
+
+            # TODO: just putting this here to make sure we don't exit till the threads do something useful...
+            time.sleep(1000)
 
             self.logger.warn("CB Infoblox Connector Stopping")
         except:
