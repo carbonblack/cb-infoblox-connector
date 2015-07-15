@@ -1,26 +1,70 @@
-
 [bridge]
-do_kill=true
-do_isolation=true
-do_alert=true
-carbonblack_server_url=https://cb5.wedgie.org
-carbonblack_server_token=XXX
-feed_host=192.168.230.129
-carbonblack_streaming_host=172.22.10.7
+
+;
+; core configuration options
+;
+
+;
+; listener_port
+; port to listen for incoming feed requests
+;
+listener_port=7000
+
+;
+; listener_address
+; ipv4 address to listen; defaults to 127.0.0.1
+; 0.0.0.0 binds to all interfaces
+;
+listener_address=0.0.0.0
+
+;
+; Infoblox Server Address
+;
+infoblox_server_address=192.168.230.200
+
+
+;
+; restore_feed_on_restart
+; reads previously received alerts on startup
+;
+restore_feed_on_restart=1
+
+
+;
+; Carbon Black Enterprise Server options
+;
+
+;
+; Carbon Black Enterprise Server URL
+;
+carbonblack_server_url=https://192.168.230.206
+
+;
+; Carbon Black Enterprise Server API Token
+;
+carbonblack_server_token=46c592d82e8a9ae87fe21c981a35434c12c2dc13
+
+;
+; Carbon Black Enterprise Server SSL Verfication
+;
+carbonblack_server_sslverify=0
+
+
+carbonblack_streaming_host=192.168.230.206
 carbonblack_streaming_username=cb
-carbonblack_streaming_password=XXX
+carbonblack_streaming_password=FiDk1Fz5aFOk1Oj7
 
-[infoblox]
-server_address=192.168.230.200
 
-[carbonblack]
-server_url=https://192.168.230.206
+feed_host=192.168.230.239
 
-auth_token=
+; alert,email,syslog valid options
+feed_alerting=alert,email
 
-streaming_host=192.168.230.206
-streaming_username=
-streaming_password=
-streaming_ip_match=169.250.0.10
+;
+; debugging options
+;
 
-feed_alerting=email,syslog
+; debug
+; enables various debug output
+;
+debug=1
