@@ -7,3 +7,7 @@ mkdir -p /usr/share/cb/integrations/infoblox/feeds/
 chown -R cb:cb /var/log/cb/integrations/infoblox
 chown -R cb:cb /usr/share/cb/integrations/infoblox/feeds/
 chmod +x /usr/share/cb/integrations/infoblox/cbinfoblox
+
+chkconfig --add cb-infoblox-connector
+chkconfig --level 345 cb-infoblox-connector on
+

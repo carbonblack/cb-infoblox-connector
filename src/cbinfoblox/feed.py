@@ -59,8 +59,8 @@ class FeedAction(threading.Thread, Action):
             feed_id = self.get_or_create_feed()
 
             self.logger.info("Restored %d alerts" % num_restored)
+            self.logger.info("starting feed server")
 
-            self.logger.info("starting flask")
             self.serve()
         except:
             import traceback
@@ -89,8 +89,8 @@ class FeedAction(threading.Thread, Action):
         icon_path="%s/%s" % (self.directory, self.integration_image_path)
         self.logger.info("icon_path: %s" % icon_path)
 
-        ret = cbint.utils.feed.generate_feed(self.feed_name, summary="Infoblox detonation feed",
-                        tech_data="There are no requirements to share any data with Carbon Black to use this feed. However, binaries may be shared with Infoblox.",
+        ret = cbint.utils.feed.generate_feed(self.feed_name, summary="Infoblox secure DNS domain connector",
+                        tech_data="There are no requirements to share any data with Carbon Black to use this feed.",
                         provider_url="http://www.infoblox.com/", icon_path=icon_path,
                         display_name=self.display_name, category="Connectors")
 
@@ -107,15 +107,12 @@ class FeedAction(threading.Thread, Action):
         return ret
 
     def handle_json_feed_request(self):
-        self.logger.info("handle_json_feed_request")
         return self.flask_feed.generate_json_feed(self.feed)
 
     def handle_html_feed_request(self):
-        self.logger.info("handle_html_feed_request")
         return self.flask_feed.generate_html_feed(self.feed, self.display_name)
 
     def handle_index_request(self):
-        self.logger.info("handle_index_request")
         return self.flask_feed.generate_html_index(self.feed, self.bridge_options, self.display_name,
                                                    self.cb_image_path, self.integration_image_path,
                                                    self.json_feed_path)

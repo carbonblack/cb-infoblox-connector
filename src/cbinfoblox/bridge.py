@@ -48,10 +48,6 @@ class FanOutMessage(threading.Thread):
 
             self.worker_queue.task_done()
 
-#
-# TODO -- automatically add the FEED?
-# TODO -- better logging
-# TODO -- send out an alert maybe?
 
 class InfobloxBridge(CbIntegrationDaemon):
     def __init__(self, name, configfile):
@@ -60,23 +56,17 @@ class InfobloxBridge(CbIntegrationDaemon):
         self.bridge_options = {}
         self.debug = False
         self.worker_queue = Queue.Queue(maxsize=10)
+        self.config_ready = False
 
     def run(self):
+        self.validate_config()
+
         try:
             self.logger.warn("CB Infoblox Bridge Starting")
             sslverify = False if self.bridge_options.get('carbonblack_server_sslverify', "0") == "0" else True
             self.cb = cbapi.CbApi(self.bridge_options['carbonblack_server_url'],
                                   token=self.bridge_options['carbonblack_server_token'],
                                   ssl_verify=sslverify)
-
-            #
-            # TODO -- for some reason this (checking version) was failing...
-            #
-            # self.logger.debug("checking CB server version")
-            # if not cbint.utils.cbserver.is_server_at_least(self.cb, "4.1"):
-            #     self.logger.error("the configured Carbon Black Enterprise server does not meet the minimum "
-            #                       "required version (4.1)")
-            #     return
 
             self.streaming_host = self.bridge_options.get('carbonblack_streaming_host')
             self.streaming_username = self.bridge_options.get('carbonblack_streaming_username')
@@ -90,11 +80,14 @@ class InfobloxBridge(CbIntegrationDaemon):
             feed_thread = FeedAction(self.cb, self.logger, self.bridge_options)
             feed_thread.start()
 
-            self.logger.info("Started feed_thread")
-            time.sleep(1.0) # ghetto!
+            ctx = feed_thread.flask_feed.app.test_request_context()
+            ctx.push()
+            feed_thread.flask_feed.app.preprocess_request()
+            ctx.pop()
+
+            self.logger.info("flask ready")
 
             feed_thread.get_or_create_feed()
-
 
             kill_process_thread = ApiKillProcessAction(self.cb, self.logger)
             kill_process_thread.start()
@@ -113,16 +106,22 @@ class InfobloxBridge(CbIntegrationDaemon):
 
             self.logger.info("Starting event loop")
 
-            # TODO: just putting this here to make sure we don't exit till the threads do something useful...
-            time.sleep(1000)
+            try:
+                while True:
+                    time.sleep(5)
+            except KeyboardInterrupt:
+                self.logger.warn("Stopping Cb Infoblox Connector due to Control-C")
+                sys.exit(1)
 
-            self.logger.warn("CB Infoblox Connector Stopping")
+            self.logger.warn("Cb Infoblox Connector Stopping")
         except:
             import traceback
             self.logger.error(traceback.format_exc())
 
     def validate_config(self):
-        # TODO - -clean this up more
+        if self.config_ready:
+            return
+
         if 'bridge' in self.options:
             self.bridge_options = self.options['bridge']
         else:
@@ -131,15 +130,9 @@ class InfobloxBridge(CbIntegrationDaemon):
 
         config_valid = True
         msgs = []
-        # if not 'cyphort_url' in self.bridge_options:
-        #     msgs.append('the config option cyphort_url is required')
-        #     config_valid = False
         if not 'listener_port' in self.bridge_options or not self.bridge_options['listener_port'].isdigit():
             msgs.append('the config option listener_port is required and must be a valid port number')
             config_valid = False
-        # if not 'cyphort_api_key' in self.bridge_options:
-        #     msgs.append('the config option cyphort_api_key is required')
-        #     config_valid = False
         if not 'carbonblack_server_url' in self.bridge_options:
             msgs.append('the config option carbonblack_server_url is required')
             config_valid = False
@@ -153,4 +146,5 @@ class InfobloxBridge(CbIntegrationDaemon):
                 self.logger.error(msg)
             return False
         else:
+            self.config_ready = True
             return True

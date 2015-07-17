@@ -1,9 +1,9 @@
 #!/bin/sh
 #
-# cb-infoblox-bridge
+# cb-infoblox-connector
 #
 # chkconfig:   2345 55 25
-# description: The Carbon Black Infoblox Bridge is a Carbon Black component \
+# description: The Carbon Black Infoblox Connector is a Carbon Black component \
 #              that integrates with the Infoblox SecureDNS to provide \
 #              actions when a bad domain is visited as well as to provide \
 #              a Carbon Black feed of bad domains in your environment.
@@ -11,8 +11,8 @@
 # Source function library.
 . /etc/rc.d/init.d/functions
 
-exec="/usr/share/cb/integrations/infoblox/cb-infoblox-bridge"
-prog="cb-infoblox-bridge"
+exec="/usr/share/cb/integrations/infoblox/cb-infoblox-connector"
+prog="cb-infoblox-connector"
 pidfile="/var/run/cb/integrations/infoblox.pid"
 
 #[ -f /etc/cb/cb.conf ] || {
