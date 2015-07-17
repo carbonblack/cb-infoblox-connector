@@ -37,7 +37,6 @@ class FanOutMessage(threading.Thread):
     def run(self):
         while True:
             sensor_ip, domain = self.worker_queue.get()
-            self.logger.warn('got %s:%s from queue' % (sensor_ip, domain))
             if sensor_ip not in self.sensor_cache:
                 sensors = self.cb.sensors(query_parameters={'ip': sensor_ip})
                 # ensure that each sensor at least has an ID

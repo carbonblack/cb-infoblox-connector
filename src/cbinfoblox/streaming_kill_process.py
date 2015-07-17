@@ -20,11 +20,15 @@ class StreamingKillProcessAction(QueuedCbSubscriber, Action):
         # Define the "Be On The Lookout For" (bolo) list that we'll use when processing the stream...
         self.bolo = defaultdict(dict)
         self.bolo_lock = threading.Lock()
+        self.done = False
+
         QueuedCbSubscriber.__init__(self, streaming_host, streaming_user, streaming_password,
                                     "ingress.event.netconn")
 
         t1 = threading.Thread(target=self.process)
         t1.start()
+        t2 = threading.Thread(target=self._reap_threads)
+        t2.start()
 
     def name(self):
         return 'Find process via streaming & kill via API'
@@ -42,6 +46,17 @@ class StreamingKillProcessAction(QueuedCbSubscriber, Action):
             # old style guid
             return hdr.process_guid
 
+    def _reap_threads(self):
+        while not self.done:
+            time.sleep(1)
+            with self.bolo_lock:
+                for bolo_key in self.bolo.keys():
+                    bolo = self.bolo[bolo_key]
+                    if 'killing_thread' in bolo and not bolo['killing_thread'].is_alive():
+                        self.logger.info("Reaping thread responsible for key %s" % bolo_key)
+                        bolo['killing_thread'].join()
+                        del(bolo['killing_thread'])
+
     def action(self, sensors, domain):
         # only take action on sensors that support CbLR
         for sensor in [sensor for sensor in sensors if sensor.get('supports_cblr', False) is True]:
@@ -52,7 +67,6 @@ class StreamingKillProcessAction(QueuedCbSubscriber, Action):
                 self.bolo[key]['timestamp'] = time.time()
                 self.logger.info("Adding %s to bolo" % key)
 
-    # TODO: LiveResponseThreads will have to be .join()ed for cleanup
     def consume_message(self, channel, method_frame, header_frame, body):
         if "application/protobuf" != header_frame.content_type:
             return
