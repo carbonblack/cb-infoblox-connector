@@ -18,6 +18,9 @@ class ApiKillProcessAction(threading.Thread, Action):
         self.bolo_lock = threading.Lock()
         threading.Thread.__init__(self)
 
+    def name(self):
+        return 'Find & Kill process via API'
+
     def stop(self):
         self.stopped = True
 

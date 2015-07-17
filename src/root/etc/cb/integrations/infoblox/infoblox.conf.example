@@ -10,6 +10,11 @@
 ;
 listener_port=7000
 
+; options for do_kill: [streaming, api]
+do_kill=streaming
+do_isolation=true
+do_alert=true
+
 ;
 ; listener_address
 ; ipv4 address to listen; defaults to 127.0.0.1
@@ -56,9 +61,6 @@ carbonblack_streaming_password=FiDk1Fz5aFOk1Oj7
 
 
 feed_host=192.168.230.239
-
-; alert,email,syslog valid options
-feed_alerting=alert,email
 
 ;
 ; debugging options

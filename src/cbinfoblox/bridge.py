@@ -31,6 +31,7 @@ class FanOutMessage(threading.Thread):
         threading.Thread.__init__(self)
 
     def add_response_action(self, action):
+        self.logger.info("Adding action: %s" % action.name())
         self.actions.append(action)
 
     def run(self):
@@ -43,8 +44,8 @@ class FanOutMessage(threading.Thread):
                 self.sensor_cache[sensor_ip] = [sensor for sensor in sensors if sensor.get('id')]
 
             for action in self.actions:
-                self.logger.warn('Dispatching action %s based on %s:%s' % (action, sensor_ip, domain))
-                action(self.sensor_cache[sensor_ip], domain)
+                self.logger.warn('Dispatching action %s based on %s:%s' % (action.name(), sensor_ip, domain))
+                action.action(self.sensor_cache[sensor_ip], domain)
 
             self.worker_queue.task_done()
 
@@ -57,6 +58,15 @@ class InfobloxBridge(CbIntegrationDaemon):
         self.debug = False
         self.worker_queue = Queue.Queue(maxsize=10)
         self.config_ready = False
+
+    def _set_alert_action(self, feed_id):
+        actions = self.cb.feed_action_enum(feed_id)
+        for action in actions:
+            if action['id'] == 3:
+                # XXX: "3" is the action id associated with creating an alert
+                return
+
+        self.cb.feed_action_add(feed_id, 3, None)
 
     def run(self):
         self.validate_config()
@@ -75,8 +85,7 @@ class InfobloxBridge(CbIntegrationDaemon):
             syslog_server = SyslogServer(10240, self.worker_queue, self.logger)
             message_broker = FanOutMessage(self.cb, self.worker_queue, self.logger)
 
-            flusher = FlushAction(self.cb, self.logger)
-            isolator = IsolateAction(self.cb, self.logger)
+            # Set up the built-in feed
             feed_thread = FeedAction(self.cb, self.logger, self.bridge_options)
             feed_thread.start()
 
@@ -87,22 +96,39 @@ class InfobloxBridge(CbIntegrationDaemon):
 
             self.logger.info("flask ready")
 
-            feed_thread.get_or_create_feed()
+            feed_id = feed_thread.get_or_create_feed()
+            if self.bridge_options.get('do_alert', False):
+                self._set_alert_action(feed_id)
 
-            kill_process_thread = ApiKillProcessAction(self.cb, self.logger)
-            kill_process_thread.start()
-            kill_streaming_action = StreamingKillProcessAction(self.cb, self.logger, self.streaming_host,
-                                                               self.streaming_username, self.streaming_password)
-            t1 = threading.Thread(target=kill_streaming_action.process)
-            t1.start()
+            # Note: it is important to keep the relative order stable here.
+            # we want to make sure that the Cb sensor flush occurs first, before the feed entry is created
+            # and before any other actions are taken (isolation or process termination)
 
-            message_broker.add_response_action(feed_thread.action)
-            message_broker.add_response_action(flusher.action)
-    #        message_broker.add_response_action(isolator.action)
-    #        message_broker.add_response_action(kill_process_thread.action)
-            message_broker.add_response_action(kill_streaming_action.action)
-            syslog_server.start()
+            # We will always flush the sensor that triggered the action, so that we get the most up-to-date
+            # information into the Cb console.
+            flusher = FlushAction(self.cb, self.logger)
+
+            message_broker.add_response_action(flusher)
+            message_broker.add_response_action(feed_thread)
+
+            # Conditionally create a kill-process action based on the configuration file.
+            kill_option = self.bridge_options.get('do_kill', None)
+            if kill_option == 'api':
+                kill_process_thread = ApiKillProcessAction(self.cb, self.logger)
+                kill_process_thread.start()
+                message_broker.add_response_action(kill_process_thread)
+            elif kill_option == 'streaming':
+                kill_streaming_action = StreamingKillProcessAction(self.cb, self.logger, self.streaming_host,
+                                                                   self.streaming_username, self.streaming_password)
+                message_broker.add_response_action(kill_streaming_action)
+
+            if self.bridge_options.get('do_isolate', False):
+                isolator = IsolateAction(self.cb, self.logger)
+                message_broker.add_response_action(isolator)
+
+            # once everything is up & running, start the message broker then the syslog server
             message_broker.start()
+            syslog_server.start()
 
             self.logger.info("Starting event loop")
 

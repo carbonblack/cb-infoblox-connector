@@ -42,6 +42,9 @@ class FeedAction(threading.Thread, Action):
             import traceback
             self.logger.error(traceback.format_exc())
 
+    def name(self):
+        return 'Add results to feed'
+
     def run(self):
         try:
             # make data directories as required

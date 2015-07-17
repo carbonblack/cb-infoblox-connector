@@ -23,6 +23,12 @@ class StreamingKillProcessAction(QueuedCbSubscriber, Action):
         QueuedCbSubscriber.__init__(self, streaming_host, streaming_user, streaming_password,
                                     "ingress.event.netconn")
 
+        t1 = threading.Thread(target=self.process)
+        t1.start()
+
+    def name(self):
+        return 'Find process via streaming & kill via API'
+
     def _make_guid(self, sensor_id, hdr):
         if hdr.HasField('process_pid') and hdr.HasField('process_create_time'):
             # new style guid
@@ -46,6 +52,7 @@ class StreamingKillProcessAction(QueuedCbSubscriber, Action):
                 self.bolo[key]['timestamp'] = time.time()
                 self.logger.info("Adding %s to bolo" % key)
 
+    # TODO: LiveResponseThreads will have to be .join()ed for cleanup
     def consume_message(self, channel, method_frame, header_frame, body):
         if "application/protobuf" != header_frame.content_type:
             return
@@ -73,4 +80,4 @@ class StreamingKillProcessAction(QueuedCbSubscriber, Action):
                         new_thread.start()
 
         except DecodeError:
-            print "Could not decode message from Cb"
+            self.logger.warn("Could not decode message from Cb")
