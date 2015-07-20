@@ -69,14 +69,17 @@ Black server will reach the Infoblox feed that this connector publishes.
     defined for the service to start.
     * `feed_host` : Set to the IPv4 address that the Cb server can reach the feed server. If this connector is installed
      on the Cb server itself, this should be set to `127.0.0.1`. The default is `127.0.0.1`.
+
 * **Infoblox Integration**: These configuration options define parameters associated with the Infoblox appliance
     * `infoblox_server_address` : Set to the IPv4 address of the Infoblox Secure DNS appliance. There is no default,
     and it must be defined for the service to start.
+
 * **Carbon Black**: These configuration options define the parameters associated with the Carbon Black server. The
 configuration options in this section are all required before the service will start.
     * `carbonblack_server_url` : Set to the URL for your Carbon Black server (example https://cbserver).
     * `carbonblack_server_token` : Set to the API token for your Carbon Black server.
     * `carbonblack_server_sslverify` : Set to "0" if your Carbon Black server has a self-signed SSL certificate.
+
 * **Actions**: These configuration options define what actions the connector will take upon receiving an alert
 from Infoblox.
     * `do_kill` : Kill any process that connects to a domain blacklisted by the Infoblox Secure DNS appliance.
@@ -86,10 +89,8 @@ from Infoblox.
     Carbon Black and set the options below in *Carbon Black - Streaming*.
     "api" will use the Cb REST API to query for processes. 
     This is subject to the delay getting process  data into the Cb SOLR database - which can be up to 15 minutes. 
-    
     * `do_isolation` : Isolate any host that contacts a domain backlisted by the Infoblox Secure DNS appliance.
     Set to "false" or "true". Default is "false". *Note that the isolation has no timeout; it will remain isolated until manually removed from isolation.*
-    
     * `do_alert` : When enabled, a Cb alert will be created  for every process that contacts a domain flagged by Infoblox. 
     Set to "false" or "true". Default is "false".
 
