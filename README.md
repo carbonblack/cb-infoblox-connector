@@ -10,7 +10,7 @@ As root on the server you'd like to install the Infoblox connector, run the foll
 ```
 cd /etc/yum.repos.d
 curl -O https://opensource.carbonblack.com/release/x86_64/CbOpenSource.repo
-yum install python-cb-infoblox-connector
+yum install python-cb-infoblox
 ```
 
 Once the software is installed via YUM, then copy the `/etc/cb/integrations/infoblox/infoblox.conf.example` 
