@@ -57,12 +57,16 @@ Both the Connector and Infoblox have to be configured to talk to each other.
 
 1. Log into the Infoblox console
 2. Click on the Grid tab on top, and then under the Edit dropdown on the right side of the screen, click *Grid Properties*.
-(See picture below)
+
 ![Grid Configuration](images/grid-properties.png)
-3. Configure the Syslog server property to point to the server running the Infoblox connector. 
+
+3. Configure the Syslog server property to point to the server running the Infoblox connector by clicking the 
+*Monitoring* tab on the left side of the dialog box, and adding an entry in the *External Syslog Servers* box.
+
 ![Grid Configuration Editor](images/grid-properties-editor.png)
+
 4. Press OK.
-5. Ensure that all DNS zones use Substitute A records (instead of NXDOMAIN) for their response type. (See picture below)
+5. Ensure that all DNS zones use Substitute A records (instead of NXDOMAIN) for their response type.
 
 ![Substitute A records](images/substitute-record.png)
 
