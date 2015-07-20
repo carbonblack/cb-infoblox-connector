@@ -10,17 +10,38 @@
 ;
 listener_port=7000
 
-; options for do_kill: [streaming, api]
+;
+; do_kill, do_isolation, and do_alert
+; Define the actions that should be taken when a process talks to a flagged domain from Infoblox:
+; - do_kill: set to "false", "streaming", or "api". Default is "false".
+;   "streaming" will use the RabbitMQ bus to listen for process starts. "streaming" will provide the most
+;   immediate response capability; you will need to enable the RabbitMQ bus in Carbon Black.
+;   "api" will use the Cb REST API to query for processes. This is subject to the delay getting process
+;   data into the Cb SOLR database - which can be up to 15 minutes.
 do_kill=streaming
+
+; - do_isolation: set to "false" or "true". Default is "false".
+;   when set to "true", the offending sensor is isolated from the network upon a process hit on Infoblox.
+;   Note that the isolation has no timeout; it will remain isolated until manually removed from isolation.
 do_isolation=true
+
+; - do_alert: set to "false" or "true". Default is "false".
+;   when set to "true", add the "alert" action to the Infoblox feed on Carbon Black. Alerts will be created
+;   for every process that contacts a domain flagged by Infoblox.
 do_alert=true
 
 ;
 ; listener_address
-; ipv4 address to listen; defaults to 127.0.0.1
+; ipv4 address to listen for the feed server; defaults to 127.0.0.1
 ; 0.0.0.0 binds to all interfaces
 ;
 listener_address=0.0.0.0
+
+;
+; feed_host
+; The Infoblox feed will be created with this IP/DNS name; therefore this IP address must be reachable
+; by the Carbon Black server
+feed_host=192.168.230.239
 
 ;
 ; Infoblox Server Address
@@ -47,20 +68,28 @@ carbonblack_server_url=https://192.168.230.206
 ;
 ; Carbon Black Enterprise Server API Token
 ;
-carbonblack_server_token=46c592d82e8a9ae87fe21c981a35434c12c2dc13
+carbonblack_server_token=
 
 ;
-; Carbon Black Enterprise Server SSL Verfication
+; Carbon Black Enterprise Server SSL Verification
 ;
 carbonblack_server_sslverify=0
 
 
+;
+; Streaming options
+; if do_kill is set to "streaming", then these must be set to the appropriate RabbitMQ parameters from
+; /etc/cb/cb.conf:
+;
+; carbonblack_streaming_host should be set to the IP/DNS name of the Cb server
+; carbonblack_streaming_username should be set to RabbitMQUser from /etc/cb/cb.conf
+; carbonblack_streaming_password should be set to RabbitMQPassword from /etc/cb/cb.conf
+;
 carbonblack_streaming_host=192.168.230.206
 carbonblack_streaming_username=cb
 carbonblack_streaming_password=FiDk1Fz5aFOk1Oj7
 
 
-feed_host=192.168.230.239
 
 ;
 ; debugging options

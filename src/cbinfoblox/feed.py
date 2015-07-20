@@ -73,7 +73,7 @@ class FeedAction(threading.Thread, Action):
         feed_id = self.cb.feed_get_id_by_name(self.feed_name)
         if not feed_id:
             self.logger.info("Creating %s feed for the first time" % self.feed_name)
-            self.cb.feed_add_from_url("http://%s:%d%s" % (self.bridge_options['feed_host'],
+            self.cb.feed_add_from_url("http://%s:%d%s" % (self.bridge_options.get('feed_host', '127.0.0.1'),
                                                           int(self.bridge_options['listener_port']),
                                                           self.json_feed_path),
                                       True, False, False)

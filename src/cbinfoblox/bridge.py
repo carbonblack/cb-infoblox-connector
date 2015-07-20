@@ -136,12 +136,13 @@ class InfobloxBridge(CbIntegrationDaemon):
                     time.sleep(5)
             except KeyboardInterrupt:
                 self.logger.warn("Stopping Cb Infoblox Connector due to Control-C")
-                sys.exit(1)
 
             self.logger.warn("Cb Infoblox Connector Stopping")
         except:
             import traceback
             self.logger.error(traceback.format_exc())
+
+        sys.exit(1)
 
     def validate_config(self):
         if self.config_ready:
