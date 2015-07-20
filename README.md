@@ -65,7 +65,7 @@ Both the Connector and Infoblox have to be configured to talk to each other.
 
     ![Grid Configuration Editor](images/grid-properties-editor.png)
 
-4. Press OK.
+4. Press the Save & Close button.
 5. Ensure that all DNS zones use Substitute A records (instead of NXDOMAIN) for their response type.
 
     ![Substitute A records](images/substitute-record.png)
