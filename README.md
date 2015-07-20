@@ -51,6 +51,23 @@ representing the feed of DNS names to alert upon.
 
 ## Configuration
 
+Both the Connector and Infoblox have to be configured to talk to each other.
+
+### Infoblox Configuration
+
+1. Log into the Infoblox console
+2. Click on the Grid tab on top, and then under the Edit dropdown on the right side of the screen, click *Grid Properties*.
+(See picture below)
+![Grid Configuration](images/grid-properties.png)
+3. Configure the Syslog server property to point to the server running the Infoblox connector. 
+![Grid Configuration Editor](images/grid-properties-editor.png)
+4. Press OK.
+5. Ensure that all DNS zones use Substitute A records (instead of NXDOMAIN) for their response type. (See picture below)
+
+![Substitute A records](images/substitute-record.png)
+
+### Connector Configuration
+
 You'll need to place a configuration file in the following location: `/etc/cb/integrations/infoblox/infoblox.conf`
 
 A sample file is provided in `/etc/cb/integrations/infoblox/infoblox.conf.example`, so you can rename the file with the following command: 
