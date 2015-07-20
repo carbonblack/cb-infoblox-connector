@@ -29,10 +29,23 @@ Any errors will be logged into `/var/log/cb/integrations/infoblox/infoblox.log`.
 
 ## Introduction
 
-This document describes how to install and use the Carbon Black Infoblox Secure DNS Connector. This connector
-ingests reports from the Infoblox Secure DNS appliance and forwards them to the Carbon Black server. This connector
-can also take action based on these reports, including killing the offending process from the endpoint, isolating
+The Carbon Black Infoblox Secure DNS connector
+ingests reports via syslog from the Infoblox Secure DNS appliance and correlates them against data in the connected
+Carbon Black server. The connector can then take one or more actions based on these reports, including killing the offending process from the endpoint, isolating
 the system from the network, and creating an alert for future followup.
+
+Infoblox syslog events are sent to the connector, which can either run on its own host or on the Carbon Black server
+itself. The connector then correlates the DNS information with Carbon Black to determine what process caused the
+DNS lookup. This correlation can only occur if the endpoint has *attempted to establish a TCP or UDP connection with
+another host*. A Carbon Black network connection event is only generated when a TCP SYN or UDP packet is sent to
+a target host, and these network connection events are used to correlate the DNS request against the Carbon Black
+data.
+
+Because of this limitation, **all DNS records in Infoblox that you want to correlate via this connector must have an A
+record associated with it** (in other words, if Infoblox returns NXDOMAIN, Carbon Black does not receive a netconn event
+and this connector cannot correlate the activity against a running process on the endpoint). The IP does not have to
+correspond to a real host; a network connection event will be generated as long as the host attempts to contact the
+target IP, even if it doesn't exist or is unreachable.
 
 *Note: This is a COMMUNITY SUPPORTED add-on. Please see the end for support options.*
 
@@ -49,9 +62,12 @@ cb-enterprise-5.0.0.150122.1654-1.el6.x86_64
 * *Infoblox Secure DNS Appliance* - A set of DNS Response Policy Zones (RPZ) should be configured in the Infoblox appliance
 representing the feed of DNS names to alert upon.
 
+* *Live Response* must be enabled on the Carbon Black server, and endpoints running a Carbon Black sensor version 5.0 or
+greater, to take advantage of the Isolation and Process Termination features of this connector.
+
 ## Configuration
 
-Both the Connector and Infoblox have to be configured to talk to each other.
+Both the Connector and Infoblox have to be configured to talk to each other. 
 
 ### Infoblox Configuration
 
@@ -66,10 +82,12 @@ Both the Connector and Infoblox have to be configured to talk to each other.
     ![Grid Configuration Editor](images/grid-properties-editor.png)
 
 4. Press the Save & Close button.
-5. Ensure that all DNS zones use Substitute A records (instead of NXDOMAIN) for their response type.
+5. Ensure that all DNS zones use Substitute A records (instead of NXDOMAIN) for their response type. 
+*See the [Introduction](#introduction) above for more information on why A records are required for the Infoblox connector
+to correlate Carbon Black network connection events with the DNS events received from Infoblox.*
 
     ![Substitute A records](images/substitute-record.png)
-
+    
 ### Connector Configuration
 
 You'll need to place a configuration file in the following location: `/etc/cb/integrations/infoblox/infoblox.conf`
@@ -82,14 +100,14 @@ mv /etc/cb/integrations/infoblox/infoblox.conf.example /etc/cb/integrations/info
 
 Inside the configuration file, under the `[bridge]` section, are the following fields:
 
-* **Feed Server**: These configuration options define parameters for the built in Feed HTTP server and how the Carbon 
-Black server will reach the Infoblox feed that this connector publishes.
-    * `listener_address` : Set to the IPv4 address of the interface the feed server should listen on. The default is `0.0.0.0`,
+* **Feed Server**: The Infoblox connector publishes a feed to Carbon Black. These configuration options
+define how the Carbon Black server will reach the Infoblox feed that this connector publishes.
+    * `listener_address` : Set to the IPv4 address of the interface the feed web server should listen on. The default is `0.0.0.0`,
     or all configured IPv4 interfaces at the time the service starts.
     * `listener_port` : Set to the port number that the feed server will listen on. There is no default, and it must be
     defined for the service to start.
-    * `feed_host` : Set to the IPv4 address that the Cb server can reach the feed server. If this connector is installed
-     on the Cb server itself, this should be set to `127.0.0.1`. The default is `127.0.0.1`.
+    * `feed_host` : Set to the IPv4 address that the Cb server can reach the machine hosting this connector. 
+    If this connector is installed on the Cb server itself, this should be set to `127.0.0.1`. The default is `127.0.0.1`.
 
 * **Infoblox Integration**: These configuration options define parameters associated with the Infoblox appliance
     * `infoblox_server_address` : Set to the IPv4 address of the Infoblox Secure DNS appliance. There is no default,
@@ -102,14 +120,9 @@ configuration options in this section are all required before the service will s
     * `carbonblack_server_sslverify` : Set to "0" if your Carbon Black server has a self-signed SSL certificate.
 
 * **Actions**: These configuration options define what actions the connector will take upon receiving an alert
-from Infoblox.
+from Infoblox. More information on these actions is available in the [Actions](#actions) section below.
     * `do_kill` : Kill any process that connects to a domain blacklisted by the Infoblox Secure DNS appliance.
-    Set to "false", "streaming", or "api". Default is "false".
-    "streaming" will use the RabbitMQ bus to listen for process starts. 
-    "streaming" will provide the most  immediate response capability; you will need to enable the RabbitMQ bus in
-    Carbon Black and set the options below in *Carbon Black - Streaming*.
-    "api" will use the Cb REST API to query for processes. 
-    This is subject to the delay getting process  data into the Cb SOLR database - which can be up to 15 minutes. 
+    Set to "false", "streaming", or "api". Default is "false". See [Kill process](#kill-process) for details.
     * `do_isolation` : Isolate any host that contacts a domain backlisted by the Infoblox Secure DNS appliance.
     Set to "false" or "true". Default is "false". *Note that the isolation has no timeout; it will remain isolated until manually removed from isolation.*
     * `do_alert` : When enabled, a Cb alert will be created  for every process that contacts a domain flagged by Infoblox. 
@@ -120,6 +133,47 @@ from Infoblox.
     * `carbonblack_streaming_username` : Set to `RabbitMQUser` from `/etc/cb/cb.conf`
     * `carbonblack_streaming_password` : Set to `RabbitMQPassword` from `/etc/cb/cb.conf  `
     
+
+## Actions
+
+The Infoblox connector will take a configurable set of actions based on each DNS alert received from Infoblox.
+This section describes each action and how it works.
+
+### Kill Process
+
+This action is configured via the `do_kill` option in the configuration file. This action requires that the Carbon Black
+server is configured to enable Live Response (see `CbLREnabled` in `/etc/cb/cb.conf`). 
+There are two methods for tracking processes to terminate via the Infoblox connector: through the REST API and through
+the Carbon Black streaming interface.
+
+The REST API requires the least configuration, but is implemented by periodically polling the Carbon Black server
+for processes that match the domain and sensor associated with the Infoblox event. This is 
+subject to a potentially significant delay (up to 15 minutes) before the process is available for searching in the REST API.
+Once the domain is flagged by Infoblox for a specific endpoint, any processes on that endpoint that contact that domain will
+automatically be killed. This method is enabled by setting the configuration option `do_kill` to `api`.
+
+The streaming interface requires more configuration, but allows Carbon Black to push the process data to the connector
+rather than continually polling for activity. This interface is not subject to the REST API commit delay, and so 
+processes can be flagged and terminated much quicker through the streaming interface. This method requires the RabbitMQ
+streaming interface to be enabled in the Carbon Black server (see the `DatastoreBroadcastEventTypes` and `RabbitMQ`
+options in `/etc/cb/cb.conf`). This method is enabled by
+setting the configuration option `do_kill` to `streaming` and setting the appropriate `carbonblack_streaming_*` options
+in the configuration file.
+
+### Isolate Endpoint
+
+This action is configured via the `do_isolate` option in the configuration file. This action requires that the Carbon Black
+server is configured to enable Live Response (see `CbLREnabled` in `/etc/cb/cb.conf`). 
+
+Once enabled, this action will isolate any endpoint that attempts to contact a domain blacklisted by the Infoblox
+appliance. The isolation will remain in effect until the sensor is removed from isolation manually.
+
+### Create Carbon Black Alert
+
+This action is configured via the `do_alert` option in the configuration file. This action ensures that the Infoblox
+feed created on the Carbon Black server has the "alert" notification turned on, which will create an alert in the 
+Carbon Black console for every process that contacts a domain blacklisted by the Infoblox appliance.
+
 ## Execution
 
 This integration is executed via a service script that is set to start upon system boot. The service is not started
