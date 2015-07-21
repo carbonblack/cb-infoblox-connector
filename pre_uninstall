@@ -1,1 +1,4 @@
 #!/bin/sh
+/etc/init.d/cb-infoblox-connector stop
+
+chkconfig --del cb-infoblox-connector

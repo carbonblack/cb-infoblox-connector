@@ -18,6 +18,9 @@ class ApiKillProcessAction(threading.Thread, Action):
         self.bolo_lock = threading.Lock()
         threading.Thread.__init__(self)
 
+    def name(self):
+        return 'Find & Kill process via API'
+
     def stop(self):
         self.stopped = True
 
@@ -68,7 +71,7 @@ class ApiKillProcessAction(threading.Thread, Action):
                 target_proc_guids = [proc.get('id') for proc in procs]
                 self._add_processes_to_bolo(search_entry['sensor_id'], target_proc_guids)
 
-            time.sleep(15)
+            time.sleep(60)
 
         for bolo in self.bolo:
             if bolo['killing_thread']:

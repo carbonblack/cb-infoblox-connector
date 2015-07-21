@@ -3,9 +3,7 @@ __author__ = 'cb'
 import threading
 import time
 import copy
-import pprint
 
-# TODO -- could this grow out of control or anything??
 """A LiveResponseThread is created for every sensor that has processes to kill"""
 class LiveResponseThread(threading.Thread):
     """ note that timeout is not currently implemented
@@ -80,10 +78,10 @@ class LiveResponseThread(threading.Thread):
         killed = False
         count = 0
 
+        self.logger.warn("Killing %d" % (pid))
+
         while not killed and count < 5:
             resp = self.cb.live_response_session_command_get(session_id, command_id)
-            self.logger.warn("Killing %d" % (pid))
-            pprint.pprint(resp)
             if resp.get('status') == 'complete':
                 killed = True
             count += 1
@@ -108,14 +106,8 @@ class LiveResponseThread(threading.Thread):
         live_procs = resp.get('processes')
         for live_proc in live_procs:
             live_proc_guid = live_proc.get('proc_guid')
-            if "iexplore.exe" in live_proc.get('path'):
-                print live_proc
-                print target_proc_guids
-
             if live_proc_guid in target_proc_guids:
                 live_proc_pid = live_proc.get('pid')
-                self.logger.warn("Killing! ----------------------------")
-                pprint.pprint(live_proc)
                 if self._kill_process(live_proc_pid):
                     self.logger.warn("KILLED %d" % live_proc_pid)
                     killed.append(live_proc_guid)

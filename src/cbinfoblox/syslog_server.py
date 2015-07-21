@@ -23,10 +23,8 @@ class SyslogServer(threading.Thread):
             while True:
                 data, addr = syslog_socket.recvfrom(2048)
                 data = data.strip()
-                self.logger.debug('got data: %s' % data) # TODO -- cleanup
                 hit = self.format_string.search(data)
                 if hit:
-                    self.logger.info('adding to queue: %s : %s' % (hit.group(1), hit.group(2)))
                     self.worker_queue.put((hit.group(1), hit.group(2)))
         except:
             import traceback

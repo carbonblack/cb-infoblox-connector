@@ -42,6 +42,9 @@ class FeedAction(threading.Thread, Action):
             import traceback
             self.logger.error(traceback.format_exc())
 
+    def name(self):
+        return 'Add results to feed'
+
     def run(self):
         try:
             # make data directories as required
@@ -59,8 +62,8 @@ class FeedAction(threading.Thread, Action):
             feed_id = self.get_or_create_feed()
 
             self.logger.info("Restored %d alerts" % num_restored)
+            self.logger.info("starting feed server")
 
-            self.logger.info("starting flask")
             self.serve()
         except:
             import traceback
@@ -70,7 +73,7 @@ class FeedAction(threading.Thread, Action):
         feed_id = self.cb.feed_get_id_by_name(self.feed_name)
         if not feed_id:
             self.logger.info("Creating %s feed for the first time" % self.feed_name)
-            self.cb.feed_add_from_url("http://%s:%d%s" % (self.bridge_options['feed_host'],
+            self.cb.feed_add_from_url("http://%s:%d%s" % (self.bridge_options.get('feed_host', '127.0.0.1'),
                                                           int(self.bridge_options['listener_port']),
                                                           self.json_feed_path),
                                       True, False, False)
@@ -89,8 +92,8 @@ class FeedAction(threading.Thread, Action):
         icon_path="%s/%s" % (self.directory, self.integration_image_path)
         self.logger.info("icon_path: %s" % icon_path)
 
-        ret = cbint.utils.feed.generate_feed(self.feed_name, summary="Infoblox detonation feed",
-                        tech_data="There are no requirements to share any data with Carbon Black to use this feed. However, binaries may be shared with Infoblox.",
+        ret = cbint.utils.feed.generate_feed(self.feed_name, summary="Infoblox secure DNS domain connector",
+                        tech_data="There are no requirements to share any data with Carbon Black to use this feed.",
                         provider_url="http://www.infoblox.com/", icon_path=icon_path,
                         display_name=self.display_name, category="Connectors")
 
@@ -107,15 +110,12 @@ class FeedAction(threading.Thread, Action):
         return ret
 
     def handle_json_feed_request(self):
-        self.logger.info("handle_json_feed_request")
         return self.flask_feed.generate_json_feed(self.feed)
 
     def handle_html_feed_request(self):
-        self.logger.info("handle_html_feed_request")
         return self.flask_feed.generate_html_feed(self.feed, self.display_name)
 
     def handle_index_request(self):
-        self.logger.info("handle_index_request")
         return self.flask_feed.generate_html_index(self.feed, self.bridge_options, self.display_name,
                                                    self.cb_image_path, self.integration_image_path,
                                                    self.json_feed_path)
