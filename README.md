@@ -3,6 +3,7 @@
 ## Installation Quickstart
 
 There are two supported configurations for this connector:
+
 1. Installing on the local Carbon Black server
 2. Installing on a server other than your Carbon Black server
 
@@ -41,8 +42,7 @@ another host*. A Carbon Black network connection event is only generated when a 
 a target host, and these network connection events are used to correlate the DNS request against the Carbon Black
 data.
 
-Because of this limitation, **all DNS records in Infoblox that you want to correlate via this connector must have an A
-record associated with it** (in other words, if Infoblox returns NXDOMAIN, Carbon Black does not receive a netconn event
+Because of this limitation, **all DNS records in Infoblox that you want to correlate via this connector must have an associated A record** (in other words, if Infoblox returns NXDOMAIN, Carbon Black does not receive a netconn event
 and this connector cannot correlate the activity against a running process on the endpoint). The IP does not have to
 correspond to a real host; a network connection event will be generated as long as the host attempts to contact the
 target IP, even if it doesn't exist or is unreachable.
