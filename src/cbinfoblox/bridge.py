@@ -65,7 +65,7 @@ class InfobloxBridge(CbIntegrationDaemon):
                 # XXX: "3" is the action id associated with creating an alert
                 return
 
-        self.cb.feed_action_add(feed_id, 3, None)
+        self.cb.feed_action_add(feed_id, 3, [])
 
     def run(self):
         self.validate_config()
