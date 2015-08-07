@@ -78,7 +78,7 @@ class LiveResponseThread(threading.Thread):
         killed = False
         count = 0
 
-        self.logger.warn("Killing %d" % (pid))
+        self.logger.warn("Killing %d" % pid)
 
         while not killed and count < 5:
             resp = self.cb.live_response_session_command_get(session_id, command_id)

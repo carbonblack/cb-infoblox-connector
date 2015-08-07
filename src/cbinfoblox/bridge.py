@@ -139,7 +139,7 @@ class InfobloxBridge(CbIntegrationDaemon):
             self.logger.warn("Cb Infoblox Connector Stopping")
         except:
             import traceback
-            self.logger.error(traceback.format_exc())
+            self.logger.error('%s' % traceback.format_exc())
 
         sys.exit(1)
 

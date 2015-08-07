@@ -40,7 +40,7 @@ class FeedAction(threading.Thread, Action):
             self.flask_feed.app.add_url_rule("/feed.html", view_func=self.handle_html_feed_request, methods=['GET'])
         except:
             import traceback
-            self.logger.error(traceback.format_exc())
+            self.logger.error('%s' % traceback.format_exc())
 
     def name(self):
         return 'Add results to feed'
@@ -66,7 +66,7 @@ class FeedAction(threading.Thread, Action):
             self.serve()
         except:
             import traceback
-            self.logger.error(traceback.format_exc())
+            self.logger.error('%s' % traceback.format_exc())
 
     def get_or_create_feed(self):
         feed_id = self.cb.feed_get_id_by_name(self.feed_name)
@@ -82,8 +82,8 @@ class FeedAction(threading.Thread, Action):
 
     def serve(self):
         address = self.bridge_options.get('listener_address', '0.0.0.0')
-        port = self.bridge_options['listener_port']
-        self.logger.info("starting flask server: %s:%s" % (address, port))
+        port = int(self.bridge_options['listener_port'])
+        self.logger.info("starting flask server: %s:%d" % (address, port))
         self.flask_feed.app.run(port=port, debug=True,
                                 host=address, use_reloader=False)
 
@@ -158,4 +158,4 @@ class FeedAction(threading.Thread, Action):
                 self.sync_needed = False
         except:
             import traceback
-            self.logger.error(traceback.format_exc())
+            self.logger.error('%s' % traceback.format_exc())
