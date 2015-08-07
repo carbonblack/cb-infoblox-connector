@@ -28,5 +28,5 @@ class SyslogServer(threading.Thread):
                     self.worker_queue.put((hit.group(1), hit.group(2)))
         except:
             import traceback
-            self.logger.error(traceback.format_exc())
+            self.logger.error('%s' % traceback.format_exc())
 

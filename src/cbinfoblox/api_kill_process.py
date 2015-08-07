@@ -64,7 +64,7 @@ class ApiKillProcessAction(threading.Thread, Action):
                 bolo_searches = copy.copy(self.bolo_searches)
 
             for search_entry in bolo_searches:
-                self.logger.info(search_entry)
+                self.logger.info('%s' % search_entry)
                 query = 'sensor_id:{0:d} domain:{1:s}'.format(search_entry['sensor_id'],
                                                               search_entry['domain'])
                 procs = self.cb.process_search_iter(query)
