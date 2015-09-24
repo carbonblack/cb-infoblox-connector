@@ -1,7 +1,7 @@
 # -*- mode: python -*-
 a = Analysis(['scripts/cb-infoblox-connector'],
              pathex=['.'],
-             hiddenimports=['unicodedata'],
+             hiddenimports=['unicodedata', 'google'],
              hookspath=None,
              runtime_hooks=None)
 pyz = PYZ(a.pure)

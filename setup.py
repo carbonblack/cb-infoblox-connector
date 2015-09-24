@@ -1,5 +1,15 @@
 #!/usr/bin/env python
 
+#
+# NOTE: when building this tool, you will need to manually modify the google protobuf
+# Python package by making the top-level 'google' directory a proper Python package.
+# This makes PyInstaller able to bundle the google.protobuf package into the output file.
+#
+# Touch the file __init__.py in your virtualenv's lib/python*/site-packages/google directory.
+# Then "import google" in a Python interpreter to compile to .pyc.
+# See http://stackoverflow.com/questions/13862562/google-protocol-buffers-not-found-when-trying-to-freeze-python-app
+#
+
 __author__ = 'jgarman'
 
 from distutils.core import setup
@@ -9,8 +19,6 @@ from distutils.command.bdist_rpm import bdist_rpm
 from distutils import log
 from distutils.file_util import write_file
 from distutils.util import change_root, convert_path
-
-from cbinfoblox import version
 
 import os
 from subprocess import call
@@ -140,6 +148,9 @@ def get_data_files(rootdir):
     return results
 
 data_files = get_data_files("root")
+data_files.append("cb-infoblox-connector.spec")
+data_files.append("scripts/cb-infoblox-connector")
+
 scripts = {
     'cb-infoblox-connector': {
         'spec': 'cb-infoblox-connector.spec',
@@ -148,8 +159,8 @@ scripts = {
 }
 
 setup(
-    name='python-cb-infoblox',
-    version=version.__version__,
+    name='python-cb-infoblox-connector',
+    version='1.2',
     url='https://github.com/carbonblack/cb-infoblox-connector',
     license='MIT',
     author='Bit9 + Carbon Black Developer Network',

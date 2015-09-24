@@ -3,3 +3,4 @@
 -e git://github.com/carbonblack/cb-integration.git#egg=cbint
 requests
 python-dateutil
+protobuf
