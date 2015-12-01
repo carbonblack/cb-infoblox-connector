@@ -10,7 +10,7 @@ class SyslogServer(threading.Thread):
         self.worker_queue = worker_queue
         self.logger = logger
         self.format_string = \
-            re.compile('src=(\d+.\d+.\d+.\d+) .*rewrite ([a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,})')
+            re.compile('src=(\d+.\d+.\d+.\d+) .*rewrite (?=.{1,254}$)((?:(?!\d+\.|-)[a-zA-Z0-9_\-]{1,63}(?<!-)\.)+(?:[a-zA-Z]{2,}))')
         threading.Thread.__init__(self)
 
     def run(self):

@@ -11,7 +11,7 @@ As root on the server you'd like to install the Infoblox connector, run the foll
 ```
 cd /etc/yum.repos.d
 curl -O https://opensource.carbonblack.com/release/x86_64/CbOpenSource.repo
-yum install python-cb-infoblox
+yum install python-cb-infoblox-connector
 ```
 
 Once the software is installed via YUM, then copy the `/etc/cb/integrations/infoblox/infoblox.conf.example` 
@@ -26,7 +26,7 @@ on server startup.
 service cb-infoblox-connector start
 ```
 
-Any errors will be logged into `/var/log/cb/integrations/infoblox/infoblox.log`.
+Any errors will be logged into `/var/log/cb/integrations/cb-infoblox-connector/cb-infoblox-connector.log`.
 
 ## Introduction
 
@@ -188,7 +188,7 @@ If there are any problems, see [Troubleshooting](#troubleshooting) below for the
 
 ## Troubleshooting
 
-If you suspect a problem, please first look at the connector logs found here: `/var/log/cb/integrations/infoblox/infoblox.log`
+If you suspect a problem, please first look at the connector logs found here: `/var/log/cb/integrations/cb-infoblox-connector/cb-infoblox-connector.log`
 
 (There might be multiple files as the logger "rolls over" when the log file hits a certain size).
 
