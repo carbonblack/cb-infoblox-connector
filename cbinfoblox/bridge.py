@@ -50,11 +50,10 @@ class FanOutMessage(threading.Thread):
 
 
 class InfobloxBridge(CbIntegrationDaemon):
-    def __init__(self, name, configfile):
+    def __init__(self, name, configfile, debug=False):
         self.config_ready = False
-        CbIntegrationDaemon.__init__(self, name, configfile=configfile)
+        CbIntegrationDaemon.__init__(self, name, configfile=configfile, debug=debug)
         self.cb = None
-        self.debug = False
         self.worker_queue = Queue.Queue(maxsize=10)
 
     def _set_alert_action(self, feed_id):
