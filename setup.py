@@ -160,7 +160,7 @@ scripts = {
 
 setup(
     name='python-cb-infoblox-connector',
-    version='1.2',
+    version='1.3',
     url='https://github.com/carbonblack/cb-infoblox-connector',
     license='MIT',
     author='Bit9 + Carbon Black Developer Network',
