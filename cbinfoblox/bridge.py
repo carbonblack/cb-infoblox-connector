@@ -18,6 +18,9 @@ from streaming_kill_process import StreamingKillProcessAction
 
 logging.getLogger("requests").setLevel(logging.WARNING)
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 
 class FanOutMessage(threading.Thread):
     def __init__(self, cb, worker_queue, logger):
@@ -31,7 +34,7 @@ class FanOutMessage(threading.Thread):
         threading.Thread.__init__(self)
 
     def add_response_action(self, action):
-        self.logger.info("Adding action: %s" % action.name())
+        logger.info("Adding action: %s" % action.name())
         self.actions.append(action)
 
     def run(self):
@@ -43,7 +46,7 @@ class FanOutMessage(threading.Thread):
                 self.sensor_cache[sensor_ip] = [sensor for sensor in sensors if sensor.get('id')]
 
             for action in self.actions:
-                self.logger.warn('Dispatching action %s based on %s:%s' % (action.name(), sensor_ip, domain))
+                logger.warn('Dispatching action %s based on %s:%s' % (action.name(), sensor_ip, domain))
                 action.action(self.sensor_cache[sensor_ip], domain)
 
             self.worker_queue.task_done()
@@ -69,8 +72,9 @@ class InfobloxBridge(CbIntegrationDaemon):
         self.validate_config()
 
         try:
-            self.logger.warn("CB Infoblox Bridge Starting")
+            logger.warn("CB Infoblox Bridge Starting")
             sslverify = False if self.bridge_options.get('carbonblack_server_sslverify', "0") == "0" else True
+            self.cb = CbResponseAPI(server=)
             self.cb = cbapi.CbApi(self.bridge_options['carbonblack_server_url'],
                                   token=self.bridge_options['carbonblack_server_token'],
                                   ssl_verify=sslverify)
@@ -91,7 +95,7 @@ class InfobloxBridge(CbIntegrationDaemon):
             feed_thread.flask_feed.app.preprocess_request()
             ctx.pop()
 
-            self.logger.info("flask ready")
+            logger.info("flask ready")
 
             feed_id = feed_thread.get_or_create_feed()
             if self.bridge_options.get('do_alert', False):
@@ -127,18 +131,18 @@ class InfobloxBridge(CbIntegrationDaemon):
             message_broker.start()
             syslog_server.start()
 
-            self.logger.info("Starting event loop")
+            logger.info("Starting event loop")
 
             try:
                 while True:
                     time.sleep(5)
             except KeyboardInterrupt:
-                self.logger.warn("Stopping Cb Infoblox Connector due to Control-C")
+                logger.warn("Stopping Cb Infoblox Connector due to Control-C")
 
-            self.logger.warn("Cb Infoblox Connector Stopping")
+            logger.warn("Cb Infoblox Connector Stopping")
         except:
             import traceback
-            self.logger.error('%s' % traceback.format_exc())
+            logger.error('%s' % traceback.format_exc())
 
         sys.exit(1)
 
@@ -149,7 +153,7 @@ class InfobloxBridge(CbIntegrationDaemon):
         if 'bridge' in self.options:
             self.bridge_options = self.options['bridge']
         else:
-            self.logger.error("configuration does not contain a [bridge] section")
+            logger.error("configuration does not contain a [bridge] section")
             return False
 
         config_valid = True
@@ -167,7 +171,7 @@ class InfobloxBridge(CbIntegrationDaemon):
         if not config_valid:
             for msg in msgs:
                 sys.stderr.write("%s\n" % msg)
-                self.logger.error(msg)
+                logger.error(msg)
             return False
         else:
             self.config_ready = True
