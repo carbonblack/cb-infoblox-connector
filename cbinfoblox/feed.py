@@ -1,6 +1,4 @@
-__author__ = 'cb'
-
-import simplejson as json
+import json
 import threading
 import os
 import time
@@ -9,15 +7,21 @@ from action import Action
 from cbint.utils.flaskfeed import FlaskFeed
 from cbint.utils.filesystem import ensure_directory_exists
 import cbint.utils.feed
+from cbapi.response import CbResponseAPI, Feed
+from cbapi.example_helpers import get_object_by_name_or_id
+from cbapi.errors import ServerError
 
+import logging
+import traceback
 
+logger = logging.getLogger(__name__)
 
 """The FeedAction will start a web server and create a feed consumable by Carbon Black that
 lists all processes flagged by infoblox"""
 class FeedAction(threading.Thread, Action):
-    def __init__(self, cb, logger, bridge_options):
+    def __init__(self, cb, bridge_options):
         try:
-            Action.__init__(self, cb, logger) # TODO -- maybe a ThreadedAction class?
+            Action.__init__(self, cb) # TODO -- maybe a ThreadedAction class?
             threading.Thread.__init__(self)
             self.flask_feed = FlaskFeed(__name__)
             self.bridge_options = bridge_options
@@ -39,8 +43,7 @@ class FeedAction(threading.Thread, Action):
             self.flask_feed.app.add_url_rule("/", view_func=self.handle_index_request, methods=['GET'])
             self.flask_feed.app.add_url_rule("/feed.html", view_func=self.handle_html_feed_request, methods=['GET'])
         except:
-            import traceback
-            self.logger.error('%s' % traceback.format_exc())
+            logger.error('%s' % traceback.format_exc())
 
     def name(self):
         return 'Add results to feed'
@@ -55,45 +58,71 @@ class FeedAction(threading.Thread, Action):
             #
             num_restored = 0
             if int(self.bridge_options.get('restore_feed_on_restart', 1)):
-                self.logger.info("Restoring saved feed...")
+                logger.info("Restoring saved feed...")
                 num_restored = self.restore_feed_files()
 
             self.feed = self.generate_feed()
 
-            self.logger.info("Restored %d alerts" % num_restored)
-            self.logger.info("starting feed server")
+            logger.info("Restored %d alerts" % num_restored)
+            logger.info("starting feed server")
 
             self.serve()
         except:
-            import traceback
-            self.logger.error('%s' % traceback.format_exc())
+            logger.error('%s' % traceback.format_exc())
 
     def get_or_create_feed(self):
-        feed_id = self.cb.feed_get_id_by_name(self.feed_name)
-        if not feed_id:
-            self.logger.info("Creating %s feed for the first time" % self.feed_name)
-            # TODO: clarification of feed_host vs listener_address
-            result = self.cb.feed_add_from_url("http://%s:%d%s" % (self.bridge_options.get('feed_host', '127.0.0.1'),
-                                                                   int(self.bridge_options['listener_port']),
-                                                                   self.json_feed_path),
-                                                                   True, False, False)
+        try:
+            feeds = get_object_by_name_or_id(self.cb, Feed, name=self.feed_name)
+        except Exception as e:
+            logger.error(e.message)
+            feeds = None
 
-            # TODO: defensive coding around these self.cb calls
-            feed_id = result.get('id', 0)
+        if not feeds:
+            logger.info("Feed {} was not found, so we are going to create it".format(self.feed_name))
+            f = self.cb.create(Feed)
+            f.feed_url = "http://%s:%d%s" % (self.bridge_options.get('feed_host', '127.0.0.1'),
+                                             int(self.bridge_options['listener_port']),
+                                             self.json_feed_path)
+            f.enabled = True
+            f.use_proxy = False
+            f.validate_server_cert = False
+            try:
+                f.save()
+            except ServerError as se:
+                if se.error_code == 500:
+                    logger.info("Could not add feed:")
+                    logger.info(
+                        " Received error code 500 from server. This is usually because the server cannot retrieve the feed.")
+                    logger.info(
+                        " Check to ensure the Cb server has network connectivity and the credentials are correct.")
+                else:
+                    logger.info("Could not add feed: {0:s}".format(str(se)))
+            except Exception as e:
+                logger.info("Could not add feed: {0:s}".format(str(e)))
+            else:
+                logger.info("Feed data: {0:s}".format(str(f)))
+                logger.info("Added feed. New feed ID is {0:d}".format(f.id))
+                f.synchronize(False)
 
-        return feed_id
+        elif len(feeds) > 1:
+            logger.warning("Multiple feeds found, selecting Feed id {}".format(feeds[0].id))
+
+        elif feeds:
+            feed_id = feeds[0].id
+            logger.info("Feed {} was found as Feed ID {}".format(self.feed_name, feed_id))
+            feeds[0].synchronize(False)
 
     def serve(self):
         address = self.bridge_options.get('listener_address', '0.0.0.0')
         port = int(self.bridge_options['listener_port'])
-        self.logger.info("starting flask server: %s:%d" % (address, port))
+        logger.info("starting flask server: %s:%d" % (address, port))
         self.flask_feed.app.run(port=port, debug=True,
                                 host=address, use_reloader=False)
 
     def generate_feed(self):
-        self.logger.info("Generating feed")
+        logger.info("Generating feed")
         icon_path="%s/%s" % (self.directory, self.integration_image_path)
-        self.logger.info("icon_path: %s" % icon_path)
+        logger.info("icon_path: %s" % icon_path)
 
         ret = cbint.utils.feed.generate_feed(self.feed_name, summary="Infoblox secure DNS domain connector",
                         tech_data="There are no requirements to share any data with Carbon Black to use this feed.",
@@ -107,7 +136,7 @@ class FeedAction(threading.Thread, Action):
                 report = {'id': "Domain-%s" % domain, 'link': 'http://www.infoblox.com', 'score': 100,
                           'timestamp': self.feed_domains[domain]['timestamp'], 'iocs': {'dns': [domain]},
                           'title': "Domain-%s" % domain}
-                self.logger.info("Adding domain %s to feed" % domain)
+                logger.info("Adding domain %s to feed" % domain)
                 ret["reports"].append(report)
 
         return ret
@@ -147,7 +176,7 @@ class FeedAction(threading.Thread, Action):
         """
         # TODO: we need a timeout feature so domains will age out of the feed over time
         try:
-            self.logger.warn("Adding domain: %s" % domain)
+            logger.warn("Adding domain: %s" % domain)
             with self.feed_lock:
                 if domain not in self.feed_domains:
                     self.sync_needed = True
@@ -160,5 +189,4 @@ class FeedAction(threading.Thread, Action):
                 self.cb.feed_synchronize(self.feed_name)
                 self.sync_needed = False
         except:
-            import traceback
-            self.logger.error('%s' % traceback.format_exc())
+            logger.error('%s' % traceback.format_exc())

@@ -1,9 +1,8 @@
-__author__ = 'cb'
-
 import time
 import struct
 import uuid
 import threading
+import logging
 from collections import defaultdict
 
 from google.protobuf.message import DecodeError
@@ -12,11 +11,13 @@ import cbapi.util.sensor_events_pb2 as cpb
 from action import Action
 from live_response import LiveResponseThread
 
+logger = logging.getLogger(__name__)
+
 """The StreamingKillProcessAction will use the streaming interface to kill a process that contacts
 a domain flagged by Infoblox immediately"""
 class StreamingKillProcessAction(QueuedCbSubscriber, Action):
     def __init__(self, cb, logger, streaming_host, streaming_user, streaming_password):
-        Action.__init__(self, cb, logger)
+        Action.__init__(self, cb)
         # Define the "Be On The Lookout For" (bolo) list that we'll use when processing the stream...
         self.bolo = defaultdict(dict)
         self.bolo_lock = threading.Lock()
@@ -53,7 +54,7 @@ class StreamingKillProcessAction(QueuedCbSubscriber, Action):
                 for bolo_key in self.bolo.keys():
                     bolo = self.bolo[bolo_key]
                     if 'killing_thread' in bolo and not bolo['killing_thread'].is_alive():
-                        self.logger.info("Reaping thread responsible for key %s" % bolo_key)
+                        logger.info("Reaping thread responsible for key %s" % bolo_key)
                         bolo['killing_thread'].join()
                         del(bolo['killing_thread'])
 
@@ -65,7 +66,7 @@ class StreamingKillProcessAction(QueuedCbSubscriber, Action):
             with self.bolo_lock:
                 key = '%d:%s' % (sensor_id, domain)
                 self.bolo[key]['timestamp'] = time.time()
-                self.logger.info("Adding %s to bolo" % key)
+                logger.info("Adding %s to bolo" % key)
 
     def consume_message(self, channel, method_frame, header_frame, body):
         if "application/protobuf" != header_frame.content_type:
@@ -87,11 +88,11 @@ class StreamingKillProcessAction(QueuedCbSubscriber, Action):
 
             with self.bolo_lock:
                 if key in self.bolo.keys():
-                    self.logger.info("Killing process guid %s" % process_guid)
+                    logger.info("Killing process guid %s" % process_guid)
                     if 'killing_thread' not in self.bolo[key] or not self.bolo[key]['killing_thread'].add_processes([process_guid]):
-                        new_thread = LiveResponseThread(self.cb, self.logger, sensor_id, [process_guid], one_time=True)
+                        new_thread = LiveResponseThread(self.cb, sensor_id, [process_guid], one_time=True)
                         self.bolo[key]['killing_thread'] = new_thread
                         new_thread.start()
 
         except DecodeError:
-            self.logger.warn("Could not decode message from Cb")
+            logger.warn("Could not decode message from Cb")

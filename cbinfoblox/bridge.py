@@ -1,20 +1,26 @@
-__author__ = 'cb'
-
-
 import threading
 import time
 import Queue
 import logging
+from logging.handlers import RotatingFileHandler
 import sys
+import traceback
 
-import cbapi
 from cbint import CbIntegrationDaemon
-from syslog_server import SyslogServer
+from syslog_server import SyslogServer, TestSyslogServer
+import cbint.utils.json
+import cbint.utils.feed
+import cbint.utils.flaskfeed
+import cbint.utils.cbserver
+import cbint.utils.filesystem
+
+from cbapi.response import CbResponseAPI
 
 from action import FlushAction, IsolateAction
 from feed import FeedAction
 from api_kill_process import ApiKillProcessAction
-from streaming_kill_process import StreamingKillProcessAction
+#from streaming_kill_process import StreamingKillProcessAction
+import version
 
 logging.getLogger("requests").setLevel(logging.WARNING)
 
@@ -23,10 +29,9 @@ logger.setLevel(logging.INFO)
 
 
 class FanOutMessage(threading.Thread):
-    def __init__(self, cb, worker_queue, logger):
+    def __init__(self, cb, worker_queue):
         self.cb = cb
         self.worker_queue = worker_queue
-        self.logger = logger
         self.actions = []
         # TODO: this should be a proper cache with a timeout...
         self.sensor_cache = {}
@@ -58,6 +63,27 @@ class InfobloxBridge(CbIntegrationDaemon):
         CbIntegrationDaemon.__init__(self, name, configfile=configfile, debug=debug)
         self.cb = None
         self.worker_queue = Queue.Queue(maxsize=10)
+        self.initialize_logging()
+        self.logfile = None
+
+    def initialize_logging(self):
+
+        if not self.logfile:
+            log_path = "/var/log/cb/integrations/%s/" % self.name
+            cbint.utils.filesystem.ensure_directory_exists(log_path)
+            self.logfile = "%s%s.log" % (log_path, self.name)
+
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        root_logger.handlers = []
+
+        rlh = RotatingFileHandler(self.logfile, maxBytes=524288, backupCount=10)
+        rlh.setFormatter(logging.Formatter(fmt="%(asctime)s: %(module)s: %(levelname)s: %(message)s"))
+        root_logger.addHandler(rlh)
+
+    @property
+    def integration_name(self):
+        return "Cb InfoBlox Connector " + version.__version__
 
     def _set_alert_action(self, feed_id):
         actions = self.cb.feed_action_enum(feed_id)
@@ -74,20 +100,23 @@ class InfobloxBridge(CbIntegrationDaemon):
         try:
             logger.warn("CB Infoblox Bridge Starting")
             sslverify = False if self.bridge_options.get('carbonblack_server_sslverify', "0") == "0" else True
-            self.cb = CbResponseAPI(server=)
-            self.cb = cbapi.CbApi(self.bridge_options['carbonblack_server_url'],
-                                  token=self.bridge_options['carbonblack_server_token'],
-                                  ssl_verify=sslverify)
+
+            self.cb = CbResponseAPI(url=self.bridge_options['carbonblack_server_url'],
+                                    token=self.bridge_options['carbonblack_server_token'],
+                                    ssl_verify=sslverify,
+                                    integration_name=self.integration_name)
+            self.cb.info()
 
             self.streaming_host = self.bridge_options.get('carbonblack_streaming_host')
             self.streaming_username = self.bridge_options.get('carbonblack_streaming_username')
             self.streaming_password = self.bridge_options.get('carbonblack_streaming_password')
 
-            syslog_server = SyslogServer(10240, self.worker_queue, self.logger)
-            message_broker = FanOutMessage(self.cb, self.worker_queue, self.logger)
+            #syslog_server = SyslogServer(10240, self.worker_queue)
+            syslog_server = TestSyslogServer(10240, self.worker_queue)
+            message_broker = FanOutMessage(self.cb, self.worker_queue)
 
             # Set up the built-in feed
-            feed_thread = FeedAction(self.cb, self.logger, self.bridge_options)
+            feed_thread = FeedAction(self.cb, self.bridge_options)
             feed_thread.start()
 
             ctx = feed_thread.flask_feed.app.test_request_context()
@@ -98,8 +127,10 @@ class InfobloxBridge(CbIntegrationDaemon):
             logger.info("flask ready")
 
             feed_id = feed_thread.get_or_create_feed()
-            if self.bridge_options.get('do_alert', False):
-                self._set_alert_action(feed_id)
+
+            #TODO revisit
+            #if self.bridge_options.get('do_alert', False):
+            #    self._set_alert_action(feed_id)
 
             # Note: it is important to keep the relative order stable here.
             # we want to make sure that the Cb sensor flush occurs first, before the feed entry is created
@@ -107,7 +138,7 @@ class InfobloxBridge(CbIntegrationDaemon):
 
             # We will always flush the sensor that triggered the action, so that we get the most up-to-date
             # information into the Cb console.
-            flusher = FlushAction(self.cb, self.logger)
+            flusher = FlushAction(self.cb)
 
             message_broker.add_response_action(flusher)
             message_broker.add_response_action(feed_thread)
@@ -115,16 +146,16 @@ class InfobloxBridge(CbIntegrationDaemon):
             # Conditionally create a kill-process action based on the configuration file.
             kill_option = self.bridge_options.get('do_kill', None)
             if kill_option == 'api':
-                kill_process_thread = ApiKillProcessAction(self.cb, self.logger)
+                kill_process_thread = ApiKillProcessAction(self.cb)
                 kill_process_thread.start()
                 message_broker.add_response_action(kill_process_thread)
-            elif kill_option == 'streaming':
-                kill_streaming_action = StreamingKillProcessAction(self.cb, self.logger, self.streaming_host,
-                                                                   self.streaming_username, self.streaming_password)
-                message_broker.add_response_action(kill_streaming_action)
+            #elif kill_option == 'streaming':
+                #kill_streaming_action = StreamingKillProcessAction(self.cb, self.streaming_host,
+                #                                                   self.streaming_username, self.streaming_password)
+                #message_broker.add_response_action(kill_streaming_action)
 
             if self.bridge_options.get('do_isolate', False):
-                isolator = IsolateAction(self.cb, self.logger)
+                isolator = IsolateAction(self.cb)
                 message_broker.add_response_action(isolator)
 
             # once everything is up & running, start the message broker then the syslog server
@@ -141,8 +172,7 @@ class InfobloxBridge(CbIntegrationDaemon):
 
             logger.warn("Cb Infoblox Connector Stopping")
         except:
-            import traceback
-            logger.error('%s' % traceback.format_exc())
+            logger.error(traceback.format_exc())
 
         sys.exit(1)
 
