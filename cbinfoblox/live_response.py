@@ -13,9 +13,8 @@ logger = logging.getLogger(__name__)
 class LiveResponseThread(threading.Thread):
     """ note that timeout is not currently implemented
     """
-    def __init__(self, cb, logger, sensor_id, process_ids, one_time=False, timeout=None):
+    def __init__(self, cb, sensor_id, process_ids, one_time=False, timeout=None):
         self.cb = cb
-        self.logger = logger
         self.sensor_id = sensor_id
         self.process_list_lock = threading.Lock()
         self.process_ids = set(process_ids)
@@ -68,7 +67,7 @@ class LiveResponseThread(threading.Thread):
 
     def _kill_process(self, pid):
 
-        self.logger.warn("Killing %d" % pid)
+        logger.warn("Killing %d" % pid)
         self.lr_session.kill_process(pid)
 
         return True #TODO
@@ -83,7 +82,7 @@ class LiveResponseThread(threading.Thread):
             if live_proc_guid in target_proc_guids:
                 live_proc_pid = live_proc.get('pid')
                 if self._kill_process(live_proc_pid):
-                    self.logger.warn("KILLED %d" % live_proc_pid)
+                    logger.warn("KILLED %d" % live_proc_pid)
                     killed.append(live_proc_guid)
 
         return (len(live_procs) > 0), killed
@@ -97,7 +96,7 @@ class LiveResponseThread(threading.Thread):
                     remaining_process_ids = copy.copy(self.remaining_process_ids)
 
                 if len(remaining_process_ids):
-                    self.logger.warn('processes queued for termination: [%s]' % ', '.join(remaining_process_ids))
+                    logger.warn('processes queued for termination: [%s]' % ', '.join(remaining_process_ids))
                     success, killed = self._kill_processes(remaining_process_ids)
 
                     with self.process_list_lock:
@@ -117,10 +116,10 @@ class LiveResponseThread(threading.Thread):
                         if not len(new_process_ids) and self.one_time:
                             self.done = True
                 else:
-                    self.logger.warn('no processes queued for termination, sleeping')
+                    logger.warn('no processes queued for termination, sleeping')
                 time.sleep(5)
 
-            self.logger.warn('exiting LiveResponseThread')
+            logger.warn('exiting LiveResponseThread')
         except:
             logger.error(traceback.format_exc())
 

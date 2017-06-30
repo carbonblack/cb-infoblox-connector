@@ -6,10 +6,14 @@ from live_response import LiveResponseThread
 import logging
 import traceback
 
+from cbapi.response.models import Process
+
 logger = logging.getLogger(__name__)
 
 """The ApiKillProcessAction action will wait for the offending process to show up in a process search
 then kill it using live response."""
+
+
 class ApiKillProcessAction(threading.Thread, Action):
     def __init__(self, cb):
         Action.__init__(self, cb)
@@ -28,6 +32,9 @@ class ApiKillProcessAction(threading.Thread, Action):
 
     def action(self, sensors, domain):
         # only take action on sensors that support CbLR
+        logger.info("ApiKillProcessAction ENTER")
+        logger.info(sensors)
+        logger.info(domain)
         for sensor in [sensor for sensor in sensors if sensor.get('supports_cblr', False) is True]:
             sensor_id = sensor.get('id')
 
@@ -70,8 +77,10 @@ class ApiKillProcessAction(threading.Thread, Action):
                     logger.info('%s' % search_entry)
                     query = 'sensor_id:{0:d} domain:{1:s}'.format(search_entry['sensor_id'],
                                                                   search_entry['domain'])
-                    procs = self.cb.process_search_iter(query)
-                    target_proc_guids = [proc.get('id') for proc in procs]
+
+                    procs = self.cb.select(Process).where(query)
+
+                    target_proc_guids = [proc.id for proc in procs]
                     self._add_processes_to_bolo(search_entry['sensor_id'], target_proc_guids)
 
                 time.sleep(60)
