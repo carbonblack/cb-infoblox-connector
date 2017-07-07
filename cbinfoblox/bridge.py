@@ -15,17 +15,18 @@ import cbint.utils.cbserver
 import cbint.utils.filesystem
 
 from cbapi.response import CbResponseAPI
+from cbapi.response.models import Sensor
 
 from action import FlushAction, IsolateAction
 from feed import FeedAction
 from api_kill_process import ApiKillProcessAction
-#from streaming_kill_process import StreamingKillProcessAction
+
 import version
 
 logging.getLogger("requests").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 class FanOutMessage(threading.Thread):
@@ -44,17 +45,26 @@ class FanOutMessage(threading.Thread):
 
     def run(self):
         while True:
-            sensor_ip, domain = self.worker_queue.get()
-            if sensor_ip not in self.sensor_cache:
-                sensors = self.cb.sensors(query_parameters={'ip': sensor_ip})
-                # ensure that each sensor at least has an ID
-                self.sensor_cache[sensor_ip] = [sensor for sensor in sensors if sensor.get('id')]
+            try:
+                sensor_ip, domain = self.worker_queue.get()
+                logger.info(sensor_ip)
+                logger.info(domain)
+                if sensor_ip not in self.sensor_cache:
+                    sensors = self.cb.select(Sensor).where('ip:{}'.format(sensor_ip))
+                    if len(sensors) == 0:
+                        logger.error("No sensors found with IP: {}".format(sensor_ip))
+                        continue
+                    # ensure that each sensor at least has an ID
+                    self.sensor_cache[sensor_ip] = [sensor for sensor in sensors if sensor.id]
 
-            for action in self.actions:
-                logger.warn('Dispatching action %s based on %s:%s' % (action.name(), sensor_ip, domain))
-                action.action(self.sensor_cache[sensor_ip], domain)
+                for action in self.actions:
+                    logger.info('Dispatching action %s based on %s:%s' % (action.name(), sensor_ip, domain))
+                    action.action(self.sensor_cache[sensor_ip], domain)
 
-            self.worker_queue.task_done()
+                self.worker_queue.task_done()
+            except Exception as e:
+                logger.info(traceback.format_exc())
+                continue
 
 
 class InfobloxBridge(CbIntegrationDaemon):
@@ -149,10 +159,14 @@ class InfobloxBridge(CbIntegrationDaemon):
                 kill_process_thread = ApiKillProcessAction(self.cb)
                 kill_process_thread.start()
                 message_broker.add_response_action(kill_process_thread)
-            #elif kill_option == 'streaming':
-                #kill_streaming_action = StreamingKillProcessAction(self.cb, self.streaming_host,
-                #                                                   self.streaming_username, self.streaming_password)
-                #message_broker.add_response_action(kill_streaming_action)
+            elif kill_option == 'streaming':
+                #
+                # For some reason this must be imported here otherwise the event registry thread does not start
+                #
+                from streaming_kill_process import StreamingKillProcessAction
+                kill_streaming_action = StreamingKillProcessAction(self.cb, self.streaming_host,
+                                                                   self.streaming_username, self.streaming_password)
+                message_broker.add_response_action(kill_streaming_action)
 
             if self.bridge_options.get('do_isolate', False):
                 isolator = IsolateAction(self.cb)

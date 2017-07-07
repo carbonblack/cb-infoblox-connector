@@ -1,8 +1,6 @@
-import time
 import logging
-from cbapi.response import event, BannedHash, Sensor
-from cbapi.event import on_event, registry
-from cbapi.example_helpers import get_cb_response_object, build_cli_parser
+import traceback
+from cbapi.response import Sensor
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +18,11 @@ class FlushAction(Action):
 
     def action(self, sensors, domain):
         for sensor in sensors:
-            flush_time = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(time.time() + 86400))
-            self.cb.sensor_flush(sensor.get('id'), flush_time)
+            try:
+                logger.info("Flushing events for Sensor Id: {}", sensor.id)
+                sensor.flush_events()
+            except Exception as e:
+                logger.error(e.message)
 
     def name(self):
         return 'Flush sensor information'

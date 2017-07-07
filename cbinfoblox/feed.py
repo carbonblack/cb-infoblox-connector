@@ -71,6 +71,9 @@ class FeedAction(threading.Thread, Action):
             logger.error('%s' % traceback.format_exc())
 
     def get_or_create_feed(self):
+
+        feed = None
+
         try:
             feeds = get_object_by_name_or_id(self.cb, Feed, name=self.feed_name)
         except Exception as e:
@@ -103,6 +106,8 @@ class FeedAction(threading.Thread, Action):
                 logger.info("Feed data: {0:s}".format(str(f)))
                 logger.info("Added feed. New feed ID is {0:d}".format(f.id))
                 f.synchronize(False)
+                self.feed_object = f
+
 
         elif len(feeds) > 1:
             logger.warning("Multiple feeds found, selecting Feed id {}".format(feeds[0].id))
@@ -111,6 +116,9 @@ class FeedAction(threading.Thread, Action):
             feed_id = feeds[0].id
             logger.info("Feed {} was found as Feed ID {}".format(self.feed_name, feed_id))
             feeds[0].synchronize(False)
+            feed = feeds[0]
+
+        self.feed_object = feed
 
     def serve(self):
         address = self.bridge_options.get('listener_address', '0.0.0.0')
@@ -185,8 +193,8 @@ class FeedAction(threading.Thread, Action):
 
             self.feed = self.generate_feed()
 
-            if self.sync_needed:
-                self.cb.feed_synchronize(self.feed_name)
+            if self.sync_needed and self.feed:
+                self.feed_object.synchronize(False)
                 self.sync_needed = False
         except:
             logger.error('%s' % traceback.format_exc())
