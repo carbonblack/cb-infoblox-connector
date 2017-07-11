@@ -7,7 +7,7 @@ import sys
 import traceback
 
 from cbint import CbIntegrationDaemon
-from syslog_server import SyslogServer, TestSyslogServer
+from syslog_server import SyslogServer
 import cbint.utils.json
 import cbint.utils.feed
 import cbint.utils.flaskfeed
@@ -121,8 +121,8 @@ class InfobloxBridge(CbIntegrationDaemon):
             self.streaming_username = self.bridge_options.get('carbonblack_streaming_username')
             self.streaming_password = self.bridge_options.get('carbonblack_streaming_password')
 
-            #syslog_server = SyslogServer(10240, self.worker_queue)
-            syslog_server = TestSyslogServer(10240, self.worker_queue)
+            syslog_server = SyslogServer(10240, self.worker_queue)
+            #syslog_server = TestSyslogServer(10240, self.worker_queue)
             message_broker = FanOutMessage(self.cb, self.worker_queue)
 
             # Set up the built-in feed

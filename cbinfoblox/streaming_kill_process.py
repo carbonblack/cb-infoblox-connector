@@ -15,7 +15,7 @@ import traceback
 
 logger = logging.getLogger(__name__)
 
-logging.getLogger("cbapi.response.event").setLevel(logging.DEBUG)
+#logging.getLogger("cbapi.response.event").setLevel(logging.DEBUG)
 
 # Define the "Be On The Lookout For" (bolo) list that we'll use when processing the stream...
 bolo = defaultdict(dict)

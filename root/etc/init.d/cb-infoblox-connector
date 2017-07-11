@@ -11,7 +11,7 @@
 # Source function library.
 . /etc/rc.d/init.d/functions
 
-exec="/usr/share/cb/integrations/infoblox/cb-infoblox-connector"
+exec="/usr/share/cb/integrations/infoblox/bin/cb-infoblox-connector"
 prog="cb-infoblox-connector"
 pidfile="/var/run/cb/integrations/infoblox.pid"
 
