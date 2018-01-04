@@ -8,6 +8,7 @@ import traceback
 
 from cbint import CbIntegrationDaemon
 from syslog_server import SyslogServer
+from restapi_poller import RestPoller
 import cbint.utils.json
 import cbint.utils.feed
 import cbint.utils.flaskfeed
@@ -23,10 +24,10 @@ from api_kill_process import ApiKillProcessAction
 
 import version
 
-logging.getLogger("requests").setLevel(logging.WARNING)
+logging.getLogger("requests").setLevel(logging.DEBUG)
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.WARNING)
 
 
 class FanOutMessage(threading.Thread):
@@ -53,9 +54,8 @@ class FanOutMessage(threading.Thread):
                     sensors = self.cb.select(Sensor).where('ip:{}'.format(sensor_ip))
                     if len(sensors) == 0:
                         logger.error("No sensors found with IP: {}".format(sensor_ip))
-                        continue
                     # ensure that each sensor at least has an ID
-                    self.sensor_cache[sensor_ip] = [sensor for sensor in sensors if sensor.id]
+                    self.sensor_cache[sensor_ip] = [sensor for sensor in sensors if sensor]
 
                 for action in self.actions:
                     logger.info('Dispatching action %s based on %s:%s' % (action.name(), sensor_ip, domain))
@@ -121,8 +121,18 @@ class InfobloxBridge(CbIntegrationDaemon):
             self.streaming_username = self.bridge_options.get('carbonblack_streaming_username')
             self.streaming_password = self.bridge_options.get('carbonblack_streaming_password')
 
-            syslog_server = SyslogServer(10240, self.worker_queue)
-            #syslog_server = TestSyslogServer(10240, self.worker_queue)
+            self.use_cloud_api = True if int(self.bridge_options.get('use_cloud_api','0')) != 0 else False
+
+            #start the syslog server normally , otherwise start the rest poller
+            if not (self.use_cloud_api):
+                syslog_server = SyslogServer(10240, self.worker_queue)
+            else:
+                self.api_token = self.bridge_options.get('api_token',"PASSWORD")
+                self.poll_interval = self.bridge_options.get('rest_poll_interval',"5M")
+                self.api_route = self.bridge_options.get('api_route',"")
+                logger.info("starting rest poller")
+                rest_poller = RestPoller(self.api_route,self.api_token,worker_queue=self.worker_queue,time_increment=self.poll_interval)
+
             message_broker = FanOutMessage(self.cb, self.worker_queue)
 
             # Set up the built-in feed
@@ -174,7 +184,10 @@ class InfobloxBridge(CbIntegrationDaemon):
 
             # once everything is up & running, start the message broker then the syslog server
             message_broker.start()
-            syslog_server.start()
+            if (self.use_cloud_api):
+                rest_poller.start()
+            else:
+                syslog_server.start()
 
             logger.info("Starting event loop")
 
@@ -211,6 +224,9 @@ class InfobloxBridge(CbIntegrationDaemon):
         if not 'carbonblack_server_token' in self.bridge_options:
             msgs.append('the config option carbonblack_server_token is required')
             config_valid = False
+        if not 'use_cloud_api' in self.bridge_options:
+            #default to False
+            self.bridge_options['use_cloud_api'] = False
 
         if not config_valid:
             for msg in msgs:

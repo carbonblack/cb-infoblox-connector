@@ -3,6 +3,7 @@
 ;
 ; core configuration options
 ;
+use_cloud_api=0
 
 ;
 ; listener_port
@@ -89,9 +90,34 @@ carbonblack_streaming_host=192.168.230.206
 carbonblack_streaming_username=cb
 carbonblack_streaming_password=FiDk1Fz5aFOk1Oj7
 
-
+;
+; Cloud API Options
+;
+;
+;
+api_route=https://csp.infoblox.com/api/threats/v1/dns_event
+;
+;
+;
 
 ;
+;api token
+;
+api_token=PASSWORD
+;
+;
+;
+
+;
+;Rest Polling time Interval
+;
+;Possible specs <int>:spec where spec in "M,S,W,D,H", minute second week day hour
+rest_poll_interval=5M
+;
+;
+;
+
+
 ; debugging options
 ;
 
