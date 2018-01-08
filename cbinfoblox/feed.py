@@ -184,7 +184,7 @@ class FeedAction(threading.Thread, Action):
         """
         # TODO: we need a timeout feature so domains will age out of the feed over time
         try:
-            logger.warn("Adding domain: %s" % domain)
+            logger.info("Adding domain: %s" % domain)
             with self.feed_lock:
                 if domain not in self.feed_domains:
                     self.sync_needed = True

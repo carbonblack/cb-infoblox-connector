@@ -5,7 +5,7 @@ import logging
 import traceback
 
 from cbapi.response.models import Sensor
-from cbapi.response.live_response_api import LiveResponseSession
+from cbapi.response.cblr import LiveResponseSession
 
 logger = logging.getLogger(__name__)
 
