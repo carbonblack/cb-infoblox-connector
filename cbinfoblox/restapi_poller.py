@@ -36,6 +36,8 @@ class RestPoller(threading.Thread):
                 res = infoblox_api.dns_event_request(self.route, t0=last_check, t1=utc_now, auth_token=self.auth_token)
                 last_check = utc_now
 
+                logger.info(res)
+
                 parsed_result = infoblox_api.parse_infoblox_dns_event(res)
                 if parsed_result:
                     for r in parsed_result:
@@ -48,6 +50,8 @@ class RestPoller(threading.Thread):
 
         except:
             logger.error('%s' % traceback.format_exc())
+        logger.info("Rest api poller existing")
+
 
 class printingQueue():
     def put(self,object):
