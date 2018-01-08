@@ -46,13 +46,10 @@ class RestPoller(threading.Thread):
 
                 # go to sleep till we another increment passes
 
-                logger.info("Sleeping for time increment + {}".format(self.TIME_INCREMENT))
                 time.sleep(self.TIME_INCREMENT.total_seconds())
-                logger.info("Done sleeping!")
 
         except:
             logger.error('%s' % traceback.format_exc())
-            logger.info("%s" % traceback.format_exc())
         logger.info("Rest api poller existing")
 
 
