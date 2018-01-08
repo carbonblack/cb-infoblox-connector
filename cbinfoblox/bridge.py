@@ -24,10 +24,10 @@ from api_kill_process import ApiKillProcessAction
 
 import version
 
-logging.getLogger("requests").setLevel(logging.DEBUG)
+logging.getLogger("requests").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.DEBUG)
 
 
 class FanOutMessage(threading.Thread):
@@ -55,7 +55,7 @@ class FanOutMessage(threading.Thread):
                     if len(sensors) == 0:
                         logger.error("No sensors found with IP: {}".format(sensor_ip))
                     # ensure that each sensor at least has an ID
-                    self.sensor_cache[sensor_ip] = [sensor for sensor in sensors if sensor]
+                    self.sensor_cache[sensor_ip] = [sensor for sensor in sensors if sensor.id]
 
                 for action in self.actions:
                     logger.info('Dispatching action %s based on %s:%s' % (action.name(), sensor_ip, domain))

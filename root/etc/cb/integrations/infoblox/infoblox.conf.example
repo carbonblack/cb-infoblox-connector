@@ -19,7 +19,7 @@ listener_port=7000
 ;   immediate response capability; you will need to enable the RabbitMQ bus in Carbon Black.
 ;   "api" will use the Cb REST API to query for processes. This is subject to the delay getting process
 ;   data into the Cb SOLR database - which can be up to 15 minutes.
-do_kill=api
+do_kill=apigut
 
 ; - do_isolation: set to "false" or "true". Default is "false".
 ;   when set to "true", the offending sensor is isolated from the network upon a process hit on Infoblox.
@@ -88,7 +88,7 @@ carbonblack_server_sslverify=0
 ;
 carbonblack_streaming_host=192.168.230.206
 carbonblack_streaming_username=cb
-carbonblack_streaming_password=FiDk1Fz5aFOk1Oj7
+carbonblack_streaming_password=rabbitmqpassword
 
 ;
 ; Cloud API Options
