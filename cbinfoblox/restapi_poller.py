@@ -45,6 +45,8 @@ class RestPoller(threading.Thread):
                         self.worker_queue.put((r['device'], r['qname']))
 
                 # go to sleep till we another increment passes
+
+                logger.info("Sleeping for time increment")
                 time.sleep(self.TIME_INCREMENT.total_seconds())
 
 
