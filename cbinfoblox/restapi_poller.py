@@ -46,7 +46,7 @@ class RestPoller(threading.Thread):
 
                 # go to sleep till we another increment passes
 
-                logger.info("Sleeping for time increment")
+                logger.info("Sleeping for time increment + {}".format(self.TIME_INCREMENT))
                 time.sleep(self.TIME_INCREMENT.total_seconds())
 
 
