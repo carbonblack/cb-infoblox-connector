@@ -3,6 +3,14 @@
 ;
 ; core configuration options
 ;
+
+;
+;use_cloud_ai
+;defaults to false, for onprem infoblox appliances
+;set to 1/true to enable support for the Infoblox Cloud API
+;
+;See api_route,api_token,and rest_poll_interval below
+;
 use_cloud_api=0
 
 ;
@@ -19,12 +27,12 @@ listener_port=7000
 ;   immediate response capability; you will need to enable the RabbitMQ bus in Carbon Black.
 ;   "api" will use the Cb REST API to query for processes. This is subject to the delay getting process
 ;   data into the Cb SOLR database - which can be up to 15 minutes.
-do_kill=api
+do_kill=false
 
 ; - do_isolation: set to "false" or "true". Default is "false".
 ;   when set to "true", the offending sensor is isolated from the network upon a process hit on Infoblox.
 ;   Note that the isolation has no timeout; it will remain isolated until manually removed from isolation.
-do_isolation=true
+do_isolation=false
 
 ; - do_alert: set to "false" or "true". Default is "false".
 ;   when set to "true", add the "alert" action to the Infoblox feed on Carbon Black. Alerts will be created
@@ -42,12 +50,15 @@ listener_address=0.0.0.0
 ; feed_host
 ; The Infoblox feed will be created with this IP/DNS name; therefore this IP address must be reachable
 ; by the Carbon Black server
-feed_host=192.168.230.239
+; Ex) IF running the connector from CbR Server, the IP should be the IP of the cbr server itself  
+; if runnning the connector from another machine, that machines IP should be used for feed_host - and it must be accesible from CbR server.
+;
+feed_host=<FEED_HOST_IP>
 
 ;
 ; Infoblox Server Address
 ;
-infoblox_server_address=192.168.230.200
+infoblox_server_address=<IPOFINFOBLOXAPPLIANCE>
 
 
 ;
@@ -64,18 +75,17 @@ restore_feed_on_restart=1
 ;
 ; Carbon Black Enterprise Server URL
 ;
-carbonblack_server_url=https://192.168.230.206
+carbonblack_server_url=https://<IP OR HOSTNAME>
 
 ;
 ; Carbon Black Enterprise Server API Token
 ;
-carbonblack_server_token=
+carbonblack_server_token=<YOURAPIKEYGOESHERE>
 
 ;
 ; Carbon Black Enterprise Server SSL Verification
 ;
 carbonblack_server_sslverify=0
-
 
 ;
 ; Streaming options
@@ -86,7 +96,7 @@ carbonblack_server_sslverify=0
 ; carbonblack_streaming_username should be set to RabbitMQUser from /etc/cb/cb.conf
 ; carbonblack_streaming_password should be set to RabbitMQPassword from /etc/cb/cb.conf
 ;
-carbonblack_streaming_host=192.168.230.206
+carbonblack_streaming_host=<IP/HOSTNAMEOFCBR>
 carbonblack_streaming_username=cb
 carbonblack_streaming_password=rabbitmqpassword
 
@@ -117,11 +127,10 @@ rest_poll_interval=5M
 ;
 ;
 
-
 ; debugging options
 ;
 
 ; debug
 ; enables various debug output
 ;
-debug=1
+debug=0

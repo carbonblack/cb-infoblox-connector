@@ -2,6 +2,10 @@
 
 ## Installation Quickstart
 
+The Carbon Black Infoblox Secure DNS Connector supports two different styles of integration:
+1. on-prem Infoblox Appliances
+2. Infoblox Active Trust Cloud  
+
 There are two supported configurations for this connector:
 
 1. Installing on the local Carbon Black server
@@ -58,14 +62,12 @@ This Carbon Black Infoblox Secure DNS Connector has the following requirements:
 [root@localhost ~]# rpm -qa | grep cb-enterprise
 cb-enterprise-5.0.0.150122.1654-1.el6.x86_64
 ```
-
-* *Infoblox Secure DNS Appliance* - A set of DNS Response Policy Zones (RPZ) should be configured in the Infoblox appliance
-representing the feed of DNS names to alert upon.
-
-* *Infoblox Cloud Services* - Use the Infoblox Cloud Services portal, configure network, public IP and appropriate policies. 
-
 * *Live Response* must be enabled on the Carbon Black server, and endpoints running a Carbon Black sensor version 5.0 or
 greater, to take advantage of the Isolation and Process Termination features of this connector.
+### On Prem  
+* *Infoblox Secure DNS Appliance* - A set of DNS Response Policy Zones (RPZ) should be configured in the Infoblox appliance
+### Infoblox Active Trust Cloud
+* *Infoblox Cloud Services* - If using the Infoblox Active Trust Cloud, configure network, public IP and appropriate policies. 
 
 ## Configuration
 
@@ -96,8 +98,7 @@ This example shows how to configure the infoblox cloud services to report on dns
 1. Log into csp.infoblox.com
 2. Go to Manage -> networks
 3. add a new network 'public IPs' and associate the IP/s ranges you want to monitor  
-4. Go to Mange -> Security Policies and configure a new security policy, with the network from the last step associated
-5. DNS events against the configured network will be reported by the Infoblox Active Trust Cloud.  
+4. DNS events against the configured network will be reported by the Infoblox Active Trust Cloud.  
  
     
 ### Connector Configuration
@@ -146,6 +147,7 @@ from Infoblox. More information on these actions is available in the [Actions](#
     * `carbonblack_streaming_host` : Set to the IP/DNS name of the Cb server 
     * `carbonblack_streaming_username` : Set to `RabbitMQUser` from `/etc/cb/cb.conf`
     * `carbonblack_streaming_password` : Set to `RabbitMQPassword` from `/etc/cb/cb.conf  `
+
 * **Infoblox Cloud API**: These configuration options are required if the 'use_cloud_api' configuration option has been enabled 
     * `api_route` : Set to the api route for DNS events from infoblox: "https://csp.infoblox.com/api/threats/v1/dns_event"
     * `api_token` : Set to the authentication token from Infoblox ATC
