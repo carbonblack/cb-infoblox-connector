@@ -71,9 +71,10 @@ greater, to take advantage of the Isolation and Process Termination features of 
 
 ## Configuration
 
-Both the Connector and Infoblox have to be configured to talk to each other. 
+Both the Connector and Infoblox have to be configured to talk to each other. The specifics vary depending on if an onprem
+appliance is used or if the Infoblox Cloud is utilized. See the following two configuration sections, respectively.
 
-### Infoblox Appliance Configuration
+### Infoblox Appliance Configuration (ONPREM)
 1. Log into the Infoblox console
 2. Click on the Grid tab on top, and then under the Edit dropdown on the right side of the screen, click *Grid Properties*.
 
@@ -90,6 +91,7 @@ Both the Connector and Infoblox have to be configured to talk to each other.
 to correlate Carbon Black network connection events with the DNS events received from Infoblox.*
 
     ![Substitute A records](images/substitute-record.png)
+    
 ### Infoblox Cloud Configuration:
 http://help.csp.infoblox.com/infoblox-activetrustcloud-home/
 
