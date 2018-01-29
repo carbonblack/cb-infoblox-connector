@@ -13,7 +13,7 @@
 
 exec="/usr/share/cb/integrations/infoblox/bin/cb-infoblox-connector"
 prog="cb-infoblox-connector"
-pidfile="/var/run/cb/integrations/infoblox.pid"
+pidfile="/var/run/cb/integrations/${prog}.pid"
 
 #[ -f /etc/cb/cb.conf ] || {
 #    echo Carbon Black Enterprise Server setup has not been finalized.
