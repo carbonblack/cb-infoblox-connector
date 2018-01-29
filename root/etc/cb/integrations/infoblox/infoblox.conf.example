@@ -1,15 +1,15 @@
 [bridge]
 
 ;
-; core configuration options
+; Core Configuration Options
 ;
 
 ;
-;use_cloud_ai
-;defaults to false, for onprem infoblox appliances
-;set to 1/true to enable support for the Infoblox Cloud API
+;use_cloud_api
+;defaults to false (0), for onprem infoblox appliances
+;set to true (1) to enable support for the Infoblox Cloud API
 ;
-;See api_route,api_token,and rest_poll_interval below
+;See api_route, api_token, and rest_poll_interval below
 ;
 use_cloud_api=0
 
@@ -37,7 +37,7 @@ do_isolation=false
 ; - do_alert: set to "false" or "true". Default is "false".
 ;   when set to "true", add the "alert" action to the Infoblox feed on Carbon Black. Alerts will be created
 ;   for every process that contacts a domain flagged by Infoblox.
-do_alert=true
+do_alert=false
 
 ;
 ; listener_address
@@ -50,14 +50,14 @@ listener_address=0.0.0.0
 ; feed_host
 ; The Infoblox feed will be created with this IP/DNS name; therefore this IP address must be reachable
 ; by the Carbon Black server
-; Ex) IF running the connector from CbR Server, the IP should be the IP of the cbr server itself  
+; Ex) If running the connector from CbR Server, the IP should be the IP of the cbr server itself  
 ; if runnning the connector from another machine, that machines IP should be used for feed_host - and it must be accesible from CbR server.
 ;
 feed_host=<FEED_HOST_IP>
 
 ;
 ; Infoblox Server Address
-;
+; Server Addres for onprem Infoblox
 infoblox_server_address=<IPOFINFOBLOXAPPLIANCE>
 
 
@@ -102,35 +102,30 @@ carbonblack_streaming_password=rabbitmqpassword
 
 ;
 ; Cloud API Options
+; 
+
 ;
-;
-;
+; API Route
+; Infoblox API Route
 api_route=https://csp.infoblox.com/api/threats/v1/dns_event
-;
-;
-;
 
 ;
-;api token
-;
-api_token=PASSWORD
-;
-;
-;
+; API token
+; Infoblox API Token
+api_token=<API_TOKEN>
 
 ;
-;Rest Polling time Interval
-;
-;Possible specs <int>:spec where spec in "M,S,W,D,H", minute second week day hour
+; Rest Polling time Interval
+; Possible specs <int>:spec where spec in "M,S,W,D,H", minute second week day hour
+; Default: 5M
 rest_poll_interval=5M
-;
-;
-;
 
+;
 ; debugging options
 ;
 
-; debug
-; enables various debug output
+; debug - enables various debug output
+; Default: 0
+; Enabled: 1
 ;
 debug=0
